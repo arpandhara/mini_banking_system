@@ -1,3 +1,29 @@
 [
-    
+    {
+        "user_id": 1000,
+        "username": "Arpan Dhara",
+        "password_hash": "scrypt:32768:8:1$2gp1QAdXqVAf43Id$1022ada0d1edb67e1b23db52dee736a0244eafbe4d67caafe0d8eb9e440268e0f2740cef61233bf5b1215f85c89cccdc519ab4d4d09a15a999b3dec74b1726b8",
+        "balance": 0.0,
+        "age": 19,
+        "gender": "male",
+        "phoneNumber": 8918290236
+    },
+    {
+        "user_id": 1001,
+        "username": "Abhijit Karmakar",
+        "password_hash": "scrypt:32768:8:1$WB98VEbUeAf0L65i$d7a58591904c9d7dcdb2ae30b3a80fd0bdd60bf19393d26b245252555d2cbb2790df777c6fb5f13399d51c1923b0f83df05fdbcb7d921a299fce5d37696944bf",
+        "balance": 0.0,
+        "age": 55,
+        "gender": "male",
+        "phoneNumber": 8915554244
+    },
+    {
+        "user_id": 1002,
+        "username": "ajhfjaasfdaskfd",
+        "password_hash": "scrypt:32768:8:1$vIaKBvzLrHiBHGd6$d94ca7e359fc2dff31cb17c9857898142f0795440e05206c74b8435ea7edd91294c778e306ccf2386a64105870400cf7e0966e9798ec580bee6767370ebe1b18",
+        "balance": 0.0,
+        "age": 75,
+        "gender": "male",
+        "phoneNumber": 8753424244
+    }
 ]
