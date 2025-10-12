@@ -1,7 +1,9 @@
 # IMPORTED MODULES-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-
-from flask import Flask , request , jsonify , session
+import secrets
+import string
+import time
+from flask import Flask , request , jsonify , session , send_from_directory
 from werkzeug.security import generate_password_hash , check_password_hash 
 from flask_cors import CORS
 from database import read_users , write_users
@@ -123,6 +125,71 @@ def login():
     
     
     
+# forgot Password logic
+
+
+
+@app.route('/api/forgotPass' , methods=['POST'])
+def forgotPass():
+    import pywhatkit
+    import pyautogui
+    data = request.get_json()
+    phoneNumber = data.get('phoneNumber')
+    
+    if not phoneNumber:
+        return jsonify({'error' : 'Phone Number is required'}),400
+    
+    try:
+        # FIX: Convert the incoming phone number string to an integer immediately.
+        phoneNumber = int(phoneNumber)
+    except (ValueError, TypeError):
+        return jsonify({'error': 'Invalid phone number format'}), 400
+    
+    users = read_users()
+    user_found = None
+    user_index = -1
+    
+    for i, user in enumerate(users):
+        if user.get('phoneNumber') == phoneNumber:
+            user_found = user
+            user_index = i
+            break # Exit the loop once a user is found
+
+    
+    if not user_found:
+        return jsonify({'error': 'Phone number not registered'}), 404
+    
+    alphabet = string.ascii_letters + string.digits
+    temp_password = ''.join(secrets.choice(alphabet) for i in range(6)) # 8-character random password
+    temp_password = f'@0{temp_password}'
+    users[user_index]['password_hash'] = generate_password_hash(temp_password)
+    write_users(users)
+    
+    try:
+        phone_with_country_code = f"+91{phoneNumber}"
+        message = f"Hello {user_found['username']},\n\nYour temporary password for Mini Bank is: {temp_password}\n\nPlease use this to log in and change your password immediately."
+
+        pywhatkit.sendwhatmsg_instantly(
+            phone_with_country_code,
+            message,
+            wait_time=250,        # Increased from 15 to 25 seconds
+            tab_close=True,
+            close_time=5         # Wait 5 seconds before closing the tab
+        )
+
+        return jsonify({
+            "message": "A temporary password has been sent to your WhatsApp.",
+            "isWhatsapp": True
+        }), 200
+    except Exception as e:
+        print(f"Error sending WhatsApp message: {e}")
+        return jsonify({
+            "error": "Could not send password via WhatsApp. Please ensure you have WhatsApp linked.",
+            "isWhatsapp": False
+        }), 500
+
+
+ 
     
 # --------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
