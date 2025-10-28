@@ -3,10 +3,15 @@
 import secrets
 import string
 import time
+import datetime
 from flask import Flask , request , jsonify , session , send_from_directory
 from werkzeug.security import generate_password_hash , check_password_hash 
 from flask_cors import CORS
-from database import read_users , write_users
+# Updated database imports
+from database import (
+    read_data_file, write_data_file,
+    USERS_FILE, TRANSACTIONS_FILE, SAVINGS_FILE, PEOPLE_FILE
+)
 
 
 
@@ -15,10 +20,18 @@ from database import read_users , write_users
 
 
 app = Flask(__name__)
-CORS(app)
+CORS(app  , supports_credentials=True)
 app.secret_key = '77ea0f9b96f802c9863be1af22696cb3' #SESSION KEY
 
-
+# --- HELPER FUNCTION ---
+def find_user_by_id(user_id):
+    """Finds a user in the users.json list by their ID."""
+    users = read_data_file(USERS_FILE, default_value=[])
+    for user in users:
+        if user.get('user_id') == user_id:
+            return user
+    return None
+# -----------------------
 
 
 # User login an sign up functionality----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -52,7 +65,8 @@ def signUp():
         return jsonify({'error': 'Phone number must be exactly 10 digits' , 
                         "signUp" :  False}), 400
     
-    users = read_users()
+    # Use the new generic read function
+    users = read_data_file(USERS_FILE, default_value=[])
     
     for user in users:
         if user.get('phoneNumber') == int(phoneNumber):
@@ -77,7 +91,39 @@ def signUp():
     }
     
     users.append(new_user)
-    write_users(users)
+    # Use the new generic write function
+    write_data_file(USERS_FILE, users)
+    
+    
+    # --- NEW: INITIALIZE USER DATA IN OTHER FILES ---
+    
+    # Convert new_user_id to string for JSON keys
+    user_id_str = str(new_user_id)
+    
+    try:
+        # Initialize transactions (default is an object {})
+        transactions_data = read_data_file(TRANSACTIONS_FILE, default_value={})
+        transactions_data[user_id_str] = []
+        write_data_file(TRANSACTIONS_FILE, transactions_data)
+        
+        # Initialize savings (default is an object {})
+        savings_data = read_data_file(SAVINGS_FILE, default_value={})
+        savings_data[user_id_str] = []
+        write_data_file(SAVINGS_FILE, savings_data)
+        
+        # Initialize people (default is an object {})
+        people_data = read_data_file(PEOPLE_FILE, default_value={})
+        people_data[user_id_str] = []
+        write_data_file(PEOPLE_FILE, people_data)
+
+    except Exception as e:
+        # This is a server-side error, but we should log it
+        print(f"CRITICAL ERROR: Failed to initialize data files for user {user_id_str}: {e}")
+        # We can still return success, as the user *was* created.
+        pass
+    
+    # --- END OF NEW BLOCK ---
+    
     
     return jsonify({
         "message" : f"User {fullName} created successfully",
@@ -103,7 +149,8 @@ def login():
     if not username or not password or not user_id:
         return jsonify({'error' : 'Username, password and user_id are required'}) , 400
     
-    users = read_users()
+    # Use the new generic read function
+    users = read_data_file(USERS_FILE, default_value=[])
     user_to_check = None
     
     for user in users:
@@ -145,7 +192,8 @@ def forgotPass():
     except (ValueError, TypeError):
         return jsonify({'error': 'Invalid phone number format'}), 400
     
-    users = read_users()
+    # Use the new generic read function
+    users = read_data_file(USERS_FILE, default_value=[])
     user_found = None
     user_index = -1
     
@@ -163,7 +211,9 @@ def forgotPass():
     temp_password = ''.join(secrets.choice(alphabet) for i in range(6)) # 8-character random password
     temp_password = f'@0{temp_password}'
     users[user_index]['password_hash'] = generate_password_hash(temp_password)
-    write_users(users)
+    
+    # Use the new generic write function
+    write_data_file(USERS_FILE, users)
     
     try:
         phone_with_country_code = f"+91{phoneNumber}"
@@ -192,6 +242,76 @@ def forgotPass():
  
     
 # --------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+@app.route('/api/dashboard-data', methods=['GET'])
+def get_dashboard_data():
+    # 1. Check if user is logged in
+    user_id = session.get('user_id')
+    if not user_id:
+        return jsonify({"error": "User not logged in"}), 401
+    
+    user_id_str = str(user_id)
+    
+    # 2. Get User's Core Info (Balance, Name)
+    user = find_user_by_id(user_id)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+        
+    user_balance = user.get('balance', 0.0)
+    user_name = user.get('username', 'User')
+
+    # 3. Read all data files
+    transactions_data = read_data_file(TRANSACTIONS_FILE, default_value={})
+    savings_data = read_data_file(SAVINGS_FILE, default_value={})
+    people_data = read_data_file(PEOPLE_FILE, default_value={})
+
+    # 4. Get this user's specific data
+    # Use .get() for safety, defaulting to an empty list
+    user_transactions = transactions_data.get(user_id_str, [])
+    user_savings = savings_data.get(user_id_str, [])
+    user_people = people_data.get(user_id_str, [])
+
+    # 5. Calculate Monthly Income and Outcome
+    total_income = 0.0
+    total_outcome = 0.0
+    current_month = datetime.datetime.now().month
+    current_year = datetime.datetime.now().year
+
+    for tx in user_transactions:
+        try:
+            # Parse the date string into a datetime object
+            tx_date = datetime.datetime.strptime(tx['date'], '%Y-%m-%d')
+            
+            # Check if the transaction is from the current month and year
+            if tx_date.month == current_month and tx_date.year == current_year:
+                if tx['amount'] > 0:
+                    total_income += tx['amount']
+                else:
+                    total_outcome += tx['amount'] # This will be a negative sum
+        except (ValueError, KeyError):
+            # Skip transaction if date is missing or malformed
+            print(f"Skipping transaction with bad date: {tx.get('transaction_id')}")
+            pass
+            
+    # 6. Prepare data for frontend
+    # Slicing with `[-4:]` gets the last 4 items (or fewer if the list is short)
+    dashboard_payload = {
+        "username": user_name,
+        "total_balance": user_balance,
+        "monthly_income": total_income,
+        "monthly_outcome": total_outcome,
+        "all_transactions": user_transactions, # Send all, frontend can display them
+        "last_4_savings": user_savings[-4:],
+        "last_4_people": user_people[-4:]
+    }
+
+    return jsonify(dashboard_payload), 200
+
+# --------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
 
 
 if __name__ == '__main__':
