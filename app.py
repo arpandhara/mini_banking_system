@@ -4,24 +4,41 @@ import secrets
 import string
 import time
 import datetime
+import os  # Added for environment variables
 from flask import Flask , request , jsonify , session , send_from_directory
 from werkzeug.security import generate_password_hash , check_password_hash 
 from flask_cors import CORS
+from dotenv import load_dotenv  # Added to load .env file
+from twilio.rest import Client  # Added for Twilio
+from twilio.base.exceptions import TwilioRestException  # Added for error handling
+
 # Updated database imports
 from database import (
     read_data_file, write_data_file,
     USERS_FILE, TRANSACTIONS_FILE, SAVINGS_FILE, PEOPLE_FILE
 )
 
-
-
 # ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-
+# Load environment variables from .env file
+load_dotenv()
 
 app = Flask(__name__)
 CORS(app  , supports_credentials=True)
 app.secret_key = '77ea0f9b96f802c9863be1af22696cb3' #SESSION KEY
+
+# --- Twilio Configuration ---
+TWILIO_ACCOUNT_SID = os.environ.get('TWILIO_ACCOUNT_SID')
+TWILIO_AUTH_TOKEN = os.environ.get('TWILIO_AUTH_TOKEN')
+TWILIO_PHONE_NUMBER = os.environ.get('TWILIO_PHONE_NUMBER')
+
+twilio_client = None
+if TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN:
+    twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+else:
+    print("WARNING: Twilio environment variables not set. SMS functionality will be disabled.")
+# --- End Twilio Configuration ---
+
 
 # --- HELPER FUNCTION ---
 def find_user_by_id(user_id):
@@ -176,11 +193,10 @@ def login():
 # forgot Password logic
 
 
-
 @app.route('/api/forgotPass' , methods=['POST'])
 def forgotPass():
-    import pywhatkit
-    import pyautogui
+    # pywhatkit and pyautogui imports are removed
+    
     data = request.get_json()
     phoneNumber = data.get('phoneNumber')
     
@@ -216,30 +232,43 @@ def forgotPass():
     # Use the new generic write function
     write_data_file(USERS_FILE, users)
     
+    # --- NEW: Twilio SMS Logic ---
     try:
-        phone_with_country_code = f"+91{phoneNumber}"
-        message = f"Hello {user_found['username']},\n\nYour temporary password for Mini Bank is: {temp_password}\n\nPlease use this to log in and change your password immediately."
+        if not twilio_client or not TWILIO_PHONE_NUMBER:
+            print("ERROR: Twilio client not configured.")
+            raise Exception("Twilio client is not configured on the server.")
 
-        pywhatkit.sendwhatmsg_instantly(
-            phone_with_country_code,
-            message,
-            wait_time=250,        # Increased from 15 to 25 seconds
-            tab_close=True,
-            close_time=5         # Wait 5 seconds before closing the tab
+        # Format number for E.164 (assuming Indian numbers)
+        phone_with_country_code = f"+91{phoneNumber}"
+        message_body = f"Hello {user_found['username']},\n\nYour temporary password for Mini Bank is: {temp_password}\n\nPlease use this to log in and change your password immediately."
+
+        # Send the SMS
+        message = twilio_client.messages.create(
+            body=message_body,
+            from_=TWILIO_PHONE_NUMBER,
+            to=phone_with_country_code
         )
 
+        print(f"Twilio message sent: {message.sid}")
+        
         return jsonify({
-            "message": "A temporary password has been sent to your WhatsApp.",
-            "isWhatsapp": True
+            "message": "A temporary password has been sent to your phone via SMS.",
+            "isSMSSent": True  # Changed from isWhatsapp
         }), 200
-    except Exception as e:
-        print(f"Error sending WhatsApp message: {e}")
+        
+    except TwilioRestException as e:
+        print(f"Twilio REST Error: {e}")
         return jsonify({
-            "error": "Could not send password via WhatsApp. Please ensure you have WhatsApp linked.",
-            "isWhatsapp": False
+            "error": f"Could not send SMS. Provider error: {e.msg}",
+            "isSMSSent": False
         }), 500
-
-
+    except Exception as e:
+        print(f"General Error sending SMS: {e}")
+        return jsonify({
+            "error": "Server error: Could not send SMS. Check server configuration.",
+            "isSMSSent": False
+        }), 500
+    # --- END: Twilio SMS Logic ---
  
     
 # --------------------------------------------------------------------------------------------------------------------------------------------------------------------

@@ -2,8 +2,8 @@
     {
         "user_id": 1000,
         "username": "Arpan Dhara",
-        "password_hash": "scrypt:32768:8:1$DPMTb2wOP0t2R0QI$80df18fdd3ecb2be1d29e72ef02948e54893a1c2468786e7f3947d374363d020e5de32631a5f4bc7d96ae8adde4ec98aa9654688620d3202298f58ba999eafa2",
-        "balance": 0.0,
+        "password_hash": "scrypt:32768:8:1$uvc0Yt5oAqzCN1tP$e65678443994631a2d97047c4bd7c7883000136f2ddfb5fc4bae83d98ceb7c5daa79b7501f28feb60b2b952640987371ff4fcb96aabbab7e4663bb9d2f61f8d2",
+        "balance": 100000.0,
         "age": 19,
         "gender": "male",
         "phoneNumber": 8918290236
