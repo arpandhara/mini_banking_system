@@ -124,6 +124,13 @@ def signUp():
     
     # --- END OF NEW BLOCK ---
     
+    session['user_id'] = new_user_id
+    
+    return jsonify({
+        "message" : f"User {fullName} created successfully",
+        "user_id" : new_user_id,
+        "signUp" : True
+    }),201
     
     return jsonify({
         "message" : f"User {fullName} created successfully",
@@ -304,7 +311,8 @@ def get_dashboard_data():
         "monthly_outcome": total_outcome,
         "all_transactions": user_transactions, # Send all, frontend can display them
         "last_4_savings": user_savings[-4:],
-        "last_4_people": user_people[-4:]
+        "last_4_people": user_people[-4:],
+        "userAccountNumber" : user_id_str
     }
 
     return jsonify(dashboard_payload), 200
