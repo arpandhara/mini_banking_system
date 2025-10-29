@@ -131,12 +131,6 @@ def signUp():
         "user_id" : new_user_id,
         "signUp" : True
     }),201
-    
-    return jsonify({
-        "message" : f"User {fullName} created successfully",
-        "user_id" : new_user_id,
-        "signUp" : True
-    }),201
 
 
 # login logic
