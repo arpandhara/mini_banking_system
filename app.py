@@ -344,6 +344,73 @@ def get_dashboard_data():
 
 
 
+# --- NEW: SAVINGS ROUTES ---
+
+@app.route('/api/savings', methods=['GET'])
+def get_savings():
+    """Fetches all savings goals for the logged-in user."""
+    user_id = session.get('user_id')
+    if not user_id:
+        return jsonify({"error": "User not logged in"}), 401
+    
+    user_id_str = str(user_id)
+    savings_data = read_data_file(SAVINGS_FILE, default_value={})
+    user_savings = savings_data.get(user_id_str, [])
+    
+    # Return newest first
+    return jsonify(user_savings[::-1]), 200
+
+@app.route('/api/savings', methods=['POST'])
+def add_saving():
+    """Adds a new savings goal for the logged-in user."""
+    user_id = session.get('user_id')
+    if not user_id:
+        return jsonify({"error": "User not logged in"}), 401
+    
+    data = request.get_json()
+    user_id_str = str(user_id)
+    
+    item_name = data.get('itemName')
+    target_amount_str = data.get('targetAmount')
+    color_code = data.get('colorCode')
+    description = data.get('description')
+    
+    if not item_name or not target_amount_str:
+        return jsonify({"error": "Item name and target amount are required"}), 400
+    
+    try:
+        target_amount = float(target_amount_str)
+        if target_amount <= 0:
+            raise ValueError("Target amount must be positive")
+    except (ValueError, TypeError):
+        return jsonify({"error": "Target amount must be a positive number"}), 400
+    
+    # Generate unique saving ID (prefix 'sid_' + timestamp in milliseconds)
+    saving_id = f"sid_{int(time.time() * 1000)}"
+    
+    new_saving = {
+        "saving_id": saving_id,
+        "name": item_name,
+        "target_amount": target_amount,
+        "saved_amount": 0.0,  # New savings always start at 0
+        "color_code": color_code,
+        "description": description,
+        "created_at": datetime.datetime.now().strftime('%Y-%m-%d')
+    }
+    
+    # Read, update, and write
+    savings_data = read_data_file(SAVINGS_FILE, default_value={})
+    user_savings = savings_data.get(user_id_str, [])
+    user_savings.append(new_saving)
+    savings_data[user_id_str] = user_savings
+    write_data_file(SAVINGS_FILE, savings_data)
+    
+    # Return the newly created object
+    return jsonify(new_saving), 201
+
+# --------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
 
 if __name__ == '__main__':
     app.run(debug=True)

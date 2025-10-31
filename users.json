@@ -2,7 +2,7 @@
     {
         "user_id": 1000,
         "username": "Arpan Dhara",
-        "password_hash": "scrypt:32768:8:1$uvc0Yt5oAqzCN1tP$e65678443994631a2d97047c4bd7c7883000136f2ddfb5fc4bae83d98ceb7c5daa79b7501f28feb60b2b952640987371ff4fcb96aabbab7e4663bb9d2f61f8d2",
+        "password_hash": "scrypt:32768:8:1$XAdZTJxa0azOl19q$43736b3060715def77da427b59723e90000554f411af366efec7d144d3e297ed7a67b7ec879b379890aa5d99536ddefcc325cfe0121a03202ea3c0d5290876e1",
         "balance": 100000.0,
         "age": 19,
         "gender": "male",

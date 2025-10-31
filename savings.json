@@ -1,4 +1,14 @@
 {
     "1000": [],
-    "1001": []
+    "1001": [
+        {
+            "saving_id": "sid_1761905158878",
+            "name": "ps5",
+            "target_amount": 50000.0,
+            "saved_amount": 0.0,
+            "color_code": "blue",
+            "description": "i want a ps5 by new year",
+            "created_at": "2025-10-31"
+        }
+    ]
 }
