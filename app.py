@@ -40,14 +40,37 @@ else:
 # --- End Twilio Configuration ---
 
 
-# --- HELPER FUNCTION ---
+# --- HELPER FUNCTIONS ---
+
 def find_user_by_id(user_id):
-    """Finds a user in the users.json list by their ID."""
+    """Finds a user in the users.json list by their ID (read-only)."""
     users = read_data_file(USERS_FILE, default_value=[])
     for user in users:
         if user.get('user_id') == user_id:
             return user
     return None
+
+def find_user_and_index_by_id(users_list, user_id):
+    """
+    Finds a user and their index in a pre-loaded list.
+    Returns (user_dict, index) or (None, -1).
+    """
+    for i, user in enumerate(users_list):
+        if user.get('user_id') == user_id:
+            return user, i
+    return None, -1
+
+def create_transaction_record(name, tx_type, amount, note=""):
+    """Helper to create a standardized transaction dictionary."""
+    return {
+        "transaction_id": f"tid_{int(time.time() * 1000)}",
+        "name": name,
+        "type": tx_type,
+        "amount": amount, # This can be positive or negative
+        "date": datetime.datetime.now().strftime('%Y-%m-%d'),
+        "description": note
+    }
+
 # -----------------------
 
 
@@ -344,7 +367,7 @@ def get_dashboard_data():
 
 
 
-# --- NEW: SAVINGS ROUTES ---
+# --- SAVINGS ROUTES ---
 
 @app.route('/api/savings', methods=['GET'])
 def get_savings():
@@ -446,6 +469,186 @@ def delete_savings():
 
 # --------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
+
+# --- NEW: PAYMENT PROCESSING ROUTE ---
+@app.route('/api/process-payment', methods=['POST'])
+def process_payment():
+    
+    # 1. --- AUTHENTICATION ---
+    user_id = session.get('user_id')
+    if not user_id:
+        return jsonify({"error": "User not logged in"}), 401
+    
+    user_id_str = str(user_id)
+    data = request.get_json()
+
+    # 2. --- GET COMMON DATA ---
+    password = data.get('password')
+    amount_str = data.get('amount')
+    transaction_type = data.get('transaction_type')
+    note = data.get('note', "")
+
+    if not password or not amount_str or not transaction_type:
+        return jsonify({"error": "Password, amount, and transaction type are required"}), 400
+
+    try:
+        amount = float(amount_str)
+        if amount <= 0:
+            return jsonify({"error": "Amount must be a positive number"}), 400
+    except (ValueError, TypeError):
+        return jsonify({"error": "Invalid amount"}), 400
+
+    # 3. --- LOAD DATA & VALIDATE SENDER ---
+    users = read_data_file(USERS_FILE, default_value=[])
+    transactions_data = read_data_file(TRANSACTIONS_FILE, default_value={})
+    
+    sender, sender_index = find_user_and_index_by_id(users, user_id)
+    
+    if not sender:
+        return jsonify({"error": "Sender account not found"}), 404 # Should not happen if logged in
+        
+    if not check_password_hash(sender['password_hash'], password):
+        return jsonify({"error": "Invalid password"}), 403
+
+    # 4. --- TRANSACTION-SPECIFIC LOGIC ---
+    
+    # --- DEPOSIT ---
+    if transaction_type == 'deposit':
+        sender['balance'] += amount
+        tx_name = "Deposit"
+        tx_type = "Deposit"
+        tx_amount = amount
+        
+        new_tx = create_transaction_record(tx_name, tx_type, tx_amount, note)
+        user_tx = transactions_data.get(user_id_str, [])
+        user_tx.append(new_tx)
+        transactions_data[user_id_str] = user_tx
+        
+    # --- WITHDRAW ---
+    elif transaction_type == 'withdraw':
+        if sender['balance'] < amount:
+            return jsonify({"error": "Insufficient funds"}), 400
+            
+        sender['balance'] -= amount
+        tx_name = "Withdrawal"
+        tx_type = "Withdrawal"
+        tx_amount = -amount # Store as negative
+        
+        new_tx = create_transaction_record(tx_name, tx_type, tx_amount, note)
+        user_tx = transactions_data.get(user_id_str, [])
+        user_tx.append(new_tx)
+        transactions_data[user_id_str] = user_tx
+
+    # --- BANK TRANSFER (PAY STRANGER / FRIEND) ---
+    elif transaction_type == 'bank_transfer':
+        recipient_account_str = data.get('recipient_account')
+        if not recipient_account_str:
+            return jsonify({"error": "Recipient account number is required"}), 400
+            
+        try:
+            recipient_id = int(recipient_account_str)
+        except (ValueError, TypeError):
+            return jsonify({"error": "Invalid recipient account number"}), 400
+            
+        if recipient_id == user_id:
+            return jsonify({"error": "You cannot send money to yourself"}), 400
+            
+        if sender['balance'] < amount:
+            return jsonify({"error": "Insufficient funds"}), 400
+            
+        recipient, recipient_index = find_user_and_index_by_id(users, recipient_id)
+        
+        if not recipient:
+            return jsonify({"error": "Recipient account not found"}), 404
+            
+        # Perform transfer
+        sender['balance'] -= amount
+        recipient['balance'] += amount
+        
+        # Update users list
+        users[sender_index] = sender
+        users[recipient_index] = recipient
+        
+        # Create transaction for SENDER
+        sender_tx = create_transaction_record(
+            name=f"Transfer to {recipient['username']}",
+            tx_type="Bank Transfer",
+            amount=-amount,
+            note=note
+        )
+        sender_tx_list = transactions_data.get(user_id_str, [])
+        sender_tx_list.append(sender_tx)
+        transactions_data[user_id_str] = sender_tx_list
+        
+        # Create transaction for RECIPIENT
+        recipient_tx = create_transaction_record(
+            name=f"Transfer from {sender['username']}",
+            tx_type="Bank Transfer",
+            amount=amount,
+            note=note
+        )
+        recipient_tx_list = transactions_data.get(str(recipient_id), [])
+        recipient_tx_list.append(recipient_tx)
+        transactions_data[str(recipient_id)] = recipient_tx_list
+
+    # --- SAVING DEPOSIT ---
+    elif transaction_type == 'saving_deposit':
+        saving_id = data.get('saving_id')
+        if not saving_id:
+            return jsonify({"error": "Saving Goal ID is required"}), 400
+            
+        if sender['balance'] < amount:
+            return jsonify({"error": "Insufficient funds"}), 400
+            
+        # Load, modify, and save savings data
+        savings_data = read_data_file(SAVINGS_FILE, default_value={})
+        user_savings = savings_data.get(user_id_str, [])
+        
+        saving_found = False
+        tx_name = "Saving Deposit" # Default name
+        for saving in user_savings:
+            if saving.get('saving_id') == saving_id:
+                saving['saved_amount'] += amount
+                tx_name = f"Deposit to {saving['name']}"
+                saving_found = True
+                break
+                
+        if not saving_found:
+            return jsonify({"error": "Saving goal not found"}), 404
+            
+        # Update sender's balance
+        sender['balance'] -= amount
+        
+        # Create transaction record
+        new_tx = create_transaction_record(
+            name=tx_name,
+            tx_type="Saving Deposit",
+            amount=-amount,
+            note=note
+        )
+        user_tx = transactions_data.get(user_id_str, [])
+        user_tx.append(new_tx)
+        transactions_data[user_id_str] = user_tx
+        
+        # Write updated savings data
+        savings_data[user_id_str] = user_savings
+        write_data_file(SAVINGS_FILE, savings_data)
+    
+    else:
+        return jsonify({"error": "Invalid transaction type"}), 400
+
+    # 5. --- SAVE ALL CHANGES & RESPOND ---
+    users[sender_index] = sender # Ensure sender's updates are in the list
+    write_data_file(USERS_FILE, users)
+    write_data_file(TRANSACTIONS_FILE, transactions_data)
+
+    return jsonify({
+        "message": "Transaction successful!",
+        "new_balance": sender['balance']
+    }), 200
+
+
+# --------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 
 if __name__ == '__main__':
