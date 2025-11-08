@@ -408,6 +408,42 @@ def add_saving():
     # Return the newly created object
     return jsonify(new_saving), 201
 
+
+@app.route('/api/savingsDelete' , methods = ['POST'])
+def delete_savings():
+    "delete a savings for the logged in user"
+    user_id = session.get('user_id')
+    if not user_id:
+        return jsonify({"error": "User not logged in"}), 401
+    
+    data = request.get_json()
+    user_id_str = str(user_id)
+    
+    
+    savingsId_short = data.get('savingsId')
+    
+    if not savingsId_short:
+        return jsonify({"error": "Saving ID is required"}), 400
+    
+    target_saving_id = f"sid_{savingsId_short}"
+    
+    savings_data = read_data_file(SAVINGS_FILE, default_value={})
+    user_savings = savings_data.get(user_id_str, [])
+    
+    updated_user_savings = [
+        saving for saving in user_savings
+        if saving.get("saving_id") != target_saving_id
+    ]
+    
+    if len(updated_user_savings) < len(user_savings):
+        savings_data[user_id_str] = updated_user_savings
+        write_data_file(SAVINGS_FILE,savings_data)
+        
+        return jsonify({"message": f"Saving {target_saving_id} deleted successfully"}), 200
+    else:
+        # The loop finished, but no matching ID was found
+        return jsonify({"error": "Saving not found"}), 404
+
 # --------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 
