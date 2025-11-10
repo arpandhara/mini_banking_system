@@ -2,19 +2,10 @@
     {
         "user_id": 1000,
         "username": "Arpan Dhara",
-        "password_hash": "scrypt:32768:8:1$XAdZTJxa0azOl19q$43736b3060715def77da427b59723e90000554f411af366efec7d144d3e297ed7a67b7ec879b379890aa5d99536ddefcc325cfe0121a03202ea3c0d5290876e1",
-        "balance": 100100.0,
+        "password_hash": "scrypt:32768:8:1$zTp2XkJOxyo110nZ$e93ccb54f83905593fe901c65643b91f73db19459e544a37d98269d91cbe8603566f1cd319a0e00229ed40093550c4146944efb545d87b2fb34526ce7c6372c1",
+        "balance": 9600.0,
         "age": 19,
         "gender": "male",
         "phoneNumber": 8918290236
-    },
-    {
-        "user_id": 1001,
-        "username": "Manju Dhara",
-        "password_hash": "scrypt:32768:8:1$MM4lvwH22PJz1q1C$7c8947d4c0a53c9438b5ed282c7717c200995f6383f426a2c9ba3fafad82dadcf07ca11c2503b9440b1652cabc74a70846a498c1fdd9faa4357ef6480f77d05b",
-        "balance": 900.0,
-        "age": 35,
-        "gender": "female",
-        "phoneNumber": 7679048065
     }
 ]

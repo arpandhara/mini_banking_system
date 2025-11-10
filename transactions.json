@@ -1,45 +1,27 @@
 {
     "1000": [
         {
-            "transaction_id": "tid_1762619723379",
-            "name": "Transfer from Manju Dhara",
-            "type": "Bank Transfer",
+            "transaction_id": "tid_1762690399902",
+            "name": "Deposit",
+            "type": "Deposit",
+            "amount": 10000.0,
+            "date": "2025-11-09",
+            "description": ""
+        },
+        {
+            "transaction_id": "tid_1762702116501",
+            "name": "Withdrawal",
+            "type": "Withdrawal",
+            "amount": -500.0,
+            "date": "2025-11-09",
+            "description": ""
+        },
+        {
+            "transaction_id": "tid_1762783283704",
+            "name": "Deposit",
+            "type": "Deposit",
             "amount": 100.0,
-            "date": "2025-11-08",
-            "description": ""
-        }
-    ],
-    "1001": [
-        {
-            "transaction_id": "tid_1762617380805",
-            "name": "Deposit",
-            "type": "Deposit",
-            "amount": 1000.0,
-            "date": "2025-11-08",
-            "description": ""
-        },
-        {
-            "transaction_id": "tid_1762617424869",
-            "name": "Deposit",
-            "type": "Deposit",
-            "amount": 10.0,
-            "date": "2025-11-08",
-            "description": ""
-        },
-        {
-            "transaction_id": "tid_1762618286157",
-            "name": "Deposit to ps5",
-            "type": "Saving Deposit",
-            "amount": -10.0,
-            "date": "2025-11-08",
-            "description": ""
-        },
-        {
-            "transaction_id": "tid_1762619723378",
-            "name": "Transfer to Arpan Dhara",
-            "type": "Bank Transfer",
-            "amount": -100.0,
-            "date": "2025-11-08",
+            "date": "2025-11-10",
             "description": ""
         }
     ]

@@ -71,8 +71,6 @@ def create_transaction_record(name, tx_type, amount, note=""):
         "description": note
     }
 
-# -----------------------
-
 
 # User login an sign up functionality----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -647,6 +645,34 @@ def process_payment():
         "new_balance": sender['balance']
     }), 200
 
+
+# --------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+@app.route('/api/profile-data', methods=['GET'])
+def get_profile_data():
+    """
+    Fetches basic profile information for the logged-in user.
+    """
+    # 1. Check if user is logged in
+    user_id = session.get('user_id')
+    if not user_id:
+        return jsonify({"error": "User not logged in"}), 401
+    
+    # 2. Get User's Core Info
+    user = find_user_by_id(user_id)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+    
+    # 3. Prepare payload with all necessary details
+    profile_payload = {
+        "username": user.get('username', 'User'),
+        "user_id": user.get('user_id', 'N/A'),
+        "phoneNumber": user.get('phoneNumber', 'N/A'),
+        "age": user.get('age', 'N/A'),
+        "gender": user.get('gender', 'N/A')
+    }
+    
+    return jsonify(profile_payload), 200
 
 # --------------------------------------------------------------------------------------------------------------------------------------------------------------------
 

@@ -1,69 +1,13 @@
 {
     "1000": [
         {
-            "saving_id": "sid_1761906450430",
-            "name": "lambo",
-            "target_amount": 80000000.0,
-            "saved_amount": 0.0,
-            "color_code": "yellow",
-            "description": "i want lambo",
-            "created_at": "2025-10-31"
-        },
-        {
-            "saving_id": "sid_1761906657115",
+            "saving_id": "sid_1762711584436",
             "name": "ps5",
             "target_amount": 50000.0,
             "saved_amount": 0.0,
             "color_code": "blue",
             "description": "",
-            "created_at": "2025-10-31"
-        },
-        {
-            "saving_id": "sid_1761906670029",
-            "name": "gutka",
-            "target_amount": 12.0,
-            "saved_amount": 0.0,
-            "color_code": "red",
-            "description": "",
-            "created_at": "2025-10-31"
-        },
-        {
-            "saving_id": "sid_1761906812577",
-            "name": "russian",
-            "target_amount": 5000.0,
-            "saved_amount": 0.0,
-            "color_code": "blue",
-            "description": "aha",
-            "created_at": "2025-10-31"
-        },
-        {
-            "saving_id": "sid_1761907916202",
-            "name": "russian 2",
-            "target_amount": 6000.0,
-            "saved_amount": 0.0,
-            "color_code": "yellow",
-            "description": "",
-            "created_at": "2025-10-31"
-        }
-    ],
-    "1001": [
-        {
-            "saving_id": "sid_1762081978423",
-            "name": "lamborgini",
-            "target_amount": 800000000.0,
-            "saved_amount": 0.0,
-            "color_code": "blue",
-            "description": "i want a lambo of my own\n",
-            "created_at": "2025-11-02"
-        },
-        {
-            "saving_id": "sid_1762082126550",
-            "name": "ps5",
-            "target_amount": 50000.0,
-            "saved_amount": 10.0,
-            "color_code": "red",
-            "description": "ps5 dilado please",
-            "created_at": "2025-11-02"
+            "created_at": "2025-11-09"
         }
     ]
 }
