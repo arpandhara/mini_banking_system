@@ -674,6 +674,57 @@ def get_profile_data():
     
     return jsonify(profile_payload), 200
 
+
+# --------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+# --- NEW: CHANGE PASSWORD ROUTE ---
+@app.route('/api/change-password', methods=['POST'])
+def change_password():
+    """
+    Allows a logged-in user to change their password.
+    """
+    # 1. Check if user is logged in
+    user_id = session.get('user_id')
+    if not user_id:
+        return jsonify({"error": "User not logged in"}), 401
+
+    # 2. Get data from request
+    data = request.get_json()
+    old_password = data.get('oldPassword')
+    new_password = data.get('newPassword')
+    confirm_new_password = data.get('confirmNewPassword')
+
+    # 3. Validate input
+    if not old_password or not new_password or not confirm_new_password:
+        return jsonify({"error": "All password fields are required"}), 400
+
+    if new_password != confirm_new_password:
+        return jsonify({"error": "New passwords do not match"}), 400
+
+    # 4. Find the user
+    users = read_data_file(USERS_FILE, default_value=[])
+    user, user_index = find_user_and_index_by_id(users, user_id)
+
+    if not user:
+        session.clear() # Clear bad session
+        return jsonify({"error": "User account not found"}), 404
+
+    # 5. Verify old password
+    if not check_password_hash(user['password_hash'], old_password):
+        return jsonify({"error": "Incorrect old password"}), 403
+
+    # 6. Hash and save new password
+    new_password_hash = generate_password_hash(new_password)
+    user['password_hash'] = new_password_hash
+    users[user_index] = user
+    
+    write_data_file(USERS_FILE, users)
+
+    # 7. Return success
+    return jsonify({"message": "Password updated successfully"}), 200
+
+
 # --------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 
