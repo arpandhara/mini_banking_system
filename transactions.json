@@ -31,6 +31,40 @@
             "amount": -5000.0,
             "date": "2025-11-10",
             "description": ""
+        },
+        {
+            "transaction_id": "tid_1762843757949",
+            "name": "Transfer from Arunava Chatterjee",
+            "type": "Bank Transfer",
+            "amount": 500.0,
+            "date": "2025-11-11",
+            "description": ""
+        },
+        {
+            "transaction_id": "tid_1762843845581",
+            "name": "Deposit to russian",
+            "type": "Saving Deposit",
+            "amount": -1000.0,
+            "date": "2025-11-11",
+            "description": ""
+        }
+    ],
+    "1001": [
+        {
+            "transaction_id": "tid_1762843574288",
+            "name": "Deposit",
+            "type": "Deposit",
+            "amount": 10000.0,
+            "date": "2025-11-11",
+            "description": ""
+        },
+        {
+            "transaction_id": "tid_1762843757949",
+            "name": "Transfer to Arpan Dhara",
+            "type": "Bank Transfer",
+            "amount": -500.0,
+            "date": "2025-11-11",
+            "description": ""
         }
     ]
 }

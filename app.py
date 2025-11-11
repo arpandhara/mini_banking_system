@@ -572,6 +572,7 @@ def process_payment():
             name=f"Transfer to {recipient['username']}",
             tx_type="Bank Transfer",
             amount=-amount,
+            # recipient_id = recipient_account_str,
             note=note
         )
         sender_tx_list = transactions_data.get(user_id_str, [])
