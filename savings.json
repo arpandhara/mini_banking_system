@@ -8,15 +8,6 @@
             "color_code": "blue",
             "description": "",
             "created_at": "2025-11-09"
-        },
-        {
-            "saving_id": "sid_1762843815236",
-            "name": "russian",
-            "target_amount": 6000.0,
-            "saved_amount": 1000.0,
-            "color_code": "yellow",
-            "description": "russian chahiye",
-            "created_at": "2025-11-11"
         }
     ],
     "1001": []

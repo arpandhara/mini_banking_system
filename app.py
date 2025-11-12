@@ -782,7 +782,180 @@ def get_transactions_data():
     }
 
     return jsonify(payload), 200
-# --- END NEW ROUTE ---
+
+# --------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+# --------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# --- PEOPLE (CONTACTS) ROUTES ---
+# --------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+@app.route('/api/people', methods=['GET'])
+def get_people():
+    """
+    Fetches the list of saved people (contacts) for the logged-in user.
+    """
+    user_id = session.get('user_id')
+    if not user_id:
+        return jsonify({"error": "User not logged in"}), 401
+    
+    user_id_str = str(user_id)
+    people_data = read_data_file(PEOPLE_FILE, default_value={})
+    user_people = people_data.get(user_id_str, [])
+    
+    # Augment the data with the full account number for the frontend
+    augmented_people_list = []
+    for person in user_people:
+        person['full_account_number'] = f"3594 1899 3455 {person.get('account_id', '0000')}"
+        augmented_people_list.append(person)
+    
+    # Return newest first
+    return jsonify(augmented_people_list[::-1]), 200
+
+
+@app.route('/api/people', methods=['POST'])
+def add_person():
+    """
+    Adds a new person (contact) to the logged-in user's list.
+    Fetches the phone number from the central users database.
+    """
+    user_id = session.get('user_id')
+    if not user_id:
+        return jsonify({"error": "User not logged in"}), 401
+    
+    user_id_str = str(user_id)
+    data = request.get_json()
+    
+    contact_name = data.get('contactName')
+    contact_account_str = data.get('contactAccount') # This is the 4-digit ID
+    contact_relation = data.get('contactRelation')
+    # contact_phone is REMOVED from the request data
+
+    # 1. Validation
+    if not contact_name or not contact_account_str or not contact_relation:
+        return jsonify({"error": "Name, account, and relation are required"}), 400
+
+    try:
+        contact_account_id = int(contact_account_str)
+    except (ValueError, TypeError):
+        return jsonify({"error": "Invalid account number format"}), 400
+    
+    if contact_account_id == user_id:
+        return jsonify({"error": "You cannot add yourself as a contact"}), 400
+        
+    # 2. Check if the target user exists in the bank
+    target_user = find_user_by_id(contact_account_id)
+    if not target_user:
+        return jsonify({"error": "No user found with this account number"}), 404
+        
+    # --- NEW LOGIC: Fetch phone number from the found user ---
+    contact_phone_from_db = target_user.get('phoneNumber', "")
+    # Convert to string if it's an integer
+    contact_phone_str = str(contact_phone_from_db)
+
+    # 3. Check if this user is already in the people list
+    people_data = read_data_file(PEOPLE_FILE, default_value={})
+    user_people = people_data.get(user_id_str, [])
+    
+    for person in user_people:
+        if person.get('account_id') == contact_account_id:
+            return jsonify({"error": "This person is already in your contacts"}), 409
+    
+    # 4. All checks passed, create new person
+    new_person = {
+        "people_id": f"pid_{int(time.time() * 1000)}",
+        "name": contact_name,
+        "phone": contact_phone_str,  # <-- Use the phone number from the database
+        "account_id": contact_account_id,
+        "relation": contact_relation
+    }
+    
+    user_people.append(new_person)
+    people_data[user_id_str] = user_people
+    write_data_file(PEOPLE_FILE, people_data)
+    
+    # 5. Return the new object (augmented for the frontend)
+    new_person['full_account_number'] = f"3594 1899 3455 {contact_account_id}"
+    
+    return jsonify(new_person), 201
+
+
+@app.route('/api/people/<string:people_id>', methods=['DELETE'])
+def delete_person(people_id):
+    """
+    Deletes a person from the user's contact list.
+    """
+    user_id = session.get('user_id')
+    if not user_id:
+        return jsonify({"error": "User not logged in"}), 401
+    
+    user_id_str = str(user_id)
+    
+    people_data = read_data_file(PEOPLE_FILE, default_value={})
+    user_people = people_data.get(user_id_str, [])
+    
+    # Create a new list excluding the person to delete
+    updated_user_people = [p for p in user_people if p.get('people_id') != people_id]
+    
+    if len(user_people) == len(updated_user_people):
+        # No one was removed, so the ID was not found
+        return jsonify({"error": "Contact not found"}), 404
+        
+    # Save the updated list
+    people_data[user_id_str] = updated_user_people
+    write_data_file(PEOPLE_FILE, people_data)
+    
+    return jsonify({"message": "Contact deleted successfully"}), 200
+
+
+@app.route('/api/people/<string:people_id>', methods=['PUT'])
+def update_person(people_id):
+    """
+    Updates an existing person's details (name, phone, relation).
+    Note: Account ID cannot be changed.
+    """
+    user_id = session.get('user_id')
+    if not user_id:
+        return jsonify({"error": "User not logged in"}), 401
+        
+    user_id_str = str(user_id)
+    data = request.get_json()
+    
+    # Get new data
+    contact_name = data.get('contactName')
+    contact_phone = data.get('contactPhone', "")
+    contact_relation = data.get('contactRelation')
+
+    if not contact_name or not contact_relation:
+         return jsonify({"error": "Name and relation are required"}), 400
+
+    people_data = read_data_file(PEOPLE_FILE, default_value={})
+    user_people = people_data.get(user_id_str, [])
+    
+    contact_found = False
+    updated_contact = None
+    
+    # Find and update the contact
+    for i, person in enumerate(user_people):
+        if person.get('people_id') == people_id:
+            user_people[i]['name'] = contact_name
+            user_people[i]['phone'] = contact_phone
+            user_people[i]['relation'] = contact_relation
+            
+            contact_found = True
+            updated_contact = user_people[i] # This is a reference to the item in the list
+            break
+    
+    if not contact_found:
+        return jsonify({"error": "Contact not found"}), 404
+        
+    # Write changes
+    people_data[user_id_str] = user_people
+    write_data_file(PEOPLE_FILE, people_data)
+    
+    # Augment for response
+    updated_contact['full_account_number'] = f"3594 1899 3455 {updated_contact.get('account_id')}"
+
+    return jsonify(updated_contact), 200
 
 # --------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
