@@ -60,7 +60,8 @@ def find_user_and_index_by_id(users_list, user_id):
             return user, i
     return None, -1
 
-def create_transaction_record(name, tx_type, amount, note=""):
+# --- MODIFIED HELPER FUNCTION ---
+def create_transaction_record(name, tx_type, amount, note="", status="Completed"):
     """Helper to create a standardized transaction dictionary."""
     return {
         "transaction_id": f"tid_{int(time.time() * 1000)}",
@@ -68,8 +69,10 @@ def create_transaction_record(name, tx_type, amount, note=""):
         "type": tx_type,
         "amount": amount, # This can be positive or negative
         "date": datetime.datetime.now().strftime('%Y-%m-%d'),
-        "description": note
+        "description": note,
+        "status": status  # <-- NEWLY ADDED FIELD
     }
+# --- END MODIFIED HELPER FUNCTION ---
 
 
 # User login an sign up functionality----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -517,6 +520,7 @@ def process_payment():
         tx_type = "Deposit"
         tx_amount = amount
         
+        # Note: create_transaction_record now defaults to status="Completed"
         new_tx = create_transaction_record(tx_name, tx_type, tx_amount, note)
         user_tx = transactions_data.get(user_id_str, [])
         user_tx.append(new_tx)
@@ -572,7 +576,6 @@ def process_payment():
             name=f"Transfer to {recipient['username']}",
             tx_type="Bank Transfer",
             amount=-amount,
-            # recipient_id = recipient_account_str,
             note=note
         )
         sender_tx_list = transactions_data.get(user_id_str, [])
@@ -725,6 +728,61 @@ def change_password():
     # 7. Return success
     return jsonify({"message": "Password updated successfully"}), 200
 
+
+# --------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+# --- NEW: ROUTE FOR TRANSACTIONS PAGE ---
+@app.route('/api/transactions-data', methods=['GET'])
+def get_transactions_data():
+    """
+    Fetches all data needed for the main transactions page.
+    """
+    # 1. Check if user is logged in
+    user_id = session.get('user_id')
+    if not user_id:
+        return jsonify({"error": "User not logged in"}), 401
+    
+    user_id_str = str(user_id)
+    
+    # 2. Get User's Core Info
+    user = find_user_by_id(user_id)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+        
+    user_balance = user.get('balance', 0.0)
+    user_name = user.get('username', 'User')
+
+    # 3. Read data files
+    transactions_data = read_data_file(TRANSACTIONS_FILE, default_value={})
+    savings_data = read_data_file(SAVINGS_FILE, default_value={})
+
+    # 4. Get this user's specific data
+    user_transactions = transactions_data.get(user_id_str, [])
+    user_savings = savings_data.get(user_id_str, [])
+
+    # 5. Calculate all-time stats for the stat boxes
+    total_income = 0.0
+    total_outcome = 0.0
+    for tx in user_transactions:
+        if tx['amount'] > 0:
+            total_income += tx['amount']
+        else:
+            total_outcome += tx['amount'] # This will be a negative sum
+            
+    total_savings = sum(saving.get('saved_amount', 0.0) for saving in user_savings)
+            
+    # 6. Prepare data for frontend
+    payload = {
+        "username": user_name,
+        "total_balance": user_balance,
+        "total_savings": total_savings,
+        "total_income": total_income,
+        "total_outcome": total_outcome,
+        "transactions": user_transactions # Send all transactions
+    }
+
+    return jsonify(payload), 200
+# --- END NEW ROUTE ---
 
 # --------------------------------------------------------------------------------------------------------------------------------------------------------------------
 

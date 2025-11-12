@@ -3,7 +3,7 @@
         "user_id": 1000,
         "username": "Arpan Dhara",
         "password_hash": "scrypt:32768:8:1$Jm7qO0hed5Rr2T9x$bf808d1e4633a9e9f3951624931fa8a04e8ac9053b0b629f66b18064263b623c73a85146304f7fc2757076fa2e0fec868cb2b89de1dfe17a546d517565dcf32a",
-        "balance": 4100.0,
+        "balance": 4050.0,
         "age": 19,
         "gender": "male",
         "phoneNumber": 8918290236
@@ -12,7 +12,7 @@
         "user_id": 1001,
         "username": "Arunava Chatterjee",
         "password_hash": "scrypt:32768:8:1$dwHr3eTvj5d8uSFn$74c87796c151e76bdddb6d087d5ebe69b28ca9a3211596768d0438b89eb02de2a7c4f2bb92b617bb46ea57797572dac3e55e8c96e218db30cf0c097169f40249",
-        "balance": 9500.0,
+        "balance": 9550.0,
         "age": 20,
         "gender": "male",
         "phoneNumber": 9800455708
