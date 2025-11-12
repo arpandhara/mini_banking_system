@@ -443,7 +443,6 @@ def delete_savings():
     data = request.get_json()
     user_id_str = str(user_id)
     
-    
     savingsId_short = data.get('savingsId')
     
     if not savingsId_short:
@@ -451,19 +450,61 @@ def delete_savings():
     
     target_saving_id = f"sid_{savingsId_short}"
     
+    # --- LOAD ALL REQUIRED FILES ---
     savings_data = read_data_file(SAVINGS_FILE, default_value={})
+    users = read_data_file(USERS_FILE, default_value=[])
+    transactions_data = read_data_file(TRANSACTIONS_FILE, default_value={})
+
+    # --- Find the user ---
+    user, user_index = find_user_and_index_by_id(users, user_id)
+    if not user:
+        return jsonify({"error": "User account not found"}), 404
+
+    # --- Find the saving and get its data ---
     user_savings = savings_data.get(user_id_str, [])
+    updated_user_savings = []
+    saving_to_delete = None
     
-    updated_user_savings = [
-        saving for saving in user_savings
-        if saving.get("saving_id") != target_saving_id
-    ]
+    for saving in user_savings:
+        if saving.get("saving_id") == target_saving_id:
+            saving_to_delete = saving
+        else:
+            updated_user_savings.append(saving)
     
-    if len(updated_user_savings) < len(user_savings):
-        savings_data[user_id_str] = updated_user_savings
-        write_data_file(SAVINGS_FILE,savings_data)
+    # --- Check if the saving was found ---
+    if saving_to_delete:
+        amount_to_refund = saving_to_delete.get("saved_amount", 0.0)
+        saving_name = saving_to_delete.get("name", "Deleted Saving")
+
+        # Only process refund if there was money in it
+        if amount_to_refund > 0:
+            # 1. Add the balance back to the user
+            user['balance'] += amount_to_refund
+            users[user_index] = user # Put the updated user back in the list
+            
+            # 2. Create a refund transaction
+            refund_tx = create_transaction_record(
+                name=f"Refund from '{saving_name}'",
+                tx_type="Refund",
+                amount=amount_to_refund, # This is a positive amount
+                note="Saving goal deleted."
+            )
+            user_tx_list = transactions_data.get(user_id_str, [])
+            user_tx_list.append(refund_tx)
+            transactions_data[user_id_str] = user_tx_list
         
-        return jsonify({"message": f"Saving {target_saving_id} deleted successfully"}), 200
+        # 3. Update the savings list
+        savings_data[user_id_str] = updated_user_savings
+        
+        # 4. Save all modified files
+        write_data_file(USERS_FILE, users)
+        write_data_file(TRANSACTIONS_FILE, transactions_data)
+        write_data_file(SAVINGS_FILE, savings_data)
+        
+        return jsonify({
+            "message": f"Saving '{saving_name}' deleted. ₹{amount_to_refund:,.2f} refunded to balance."
+        }), 200
+    
     else:
         # The loop finished, but no matching ID was found
         return jsonify({"error": "Saving not found"}), 404

@@ -1,14 +1,5 @@
 {
-    "1000": [
-        {
-            "saving_id": "sid_1762711584436",
-            "name": "ps5",
-            "target_amount": 50000.0,
-            "saved_amount": 5000.0,
-            "color_code": "blue",
-            "description": "",
-            "created_at": "2025-11-09"
-        }
-    ],
-    "1001": []
+    "1000": [],
+    "1001": [],
+    "1002": []
 }
