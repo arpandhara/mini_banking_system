@@ -56,7 +56,7 @@ Follow these steps to set up the development environment on your local machine.
 
 ### 1\. Clone the Repository
 
-    git clone [https://github.com/arpandhara/mini_banking_system.git](https://github.com/arpandhara/mini_banking_system.git)
+    git clone https://github.com/arpandhara/mini_banking_system.git
     cd mini_banking_system
     
 
@@ -67,7 +67,7 @@ Isolate your dependencies by creating a virtual environment.
 **Windows:**
 
     python -m venv venv
-    venv\Scripts\activate
+    venv\Scripts\activate.ps1
     
 
 **macOS / Linux:**
@@ -119,10 +119,12 @@ Create a `.env` file in the root directory to store sensitive credentials. You c
     # --- MongoDB Connection ---
     # Replace <username> and <password> with your Atlas credentials.
     # NOTE: Ensure '/MiniBankingSystem' is specified before the '?' to auto-create the DB.
+    
     MONGO_URI=mongodb+srv://<username>:<password>@cluster0.example.mongodb.net/MiniBankingSystem?retryWrites=true&w=majority
     
     # --- Twilio Configuration (Optional) ---
     # Leave these blank if SMS functionality is not required.
+    
     TWILIO_ACCOUNT_SID=your_twilio_sid_here
     TWILIO_AUTH_TOKEN=your_twilio_auth_token_here
     TWILIO_PHONE_NUMBER=your_twilio_phone_number_here
