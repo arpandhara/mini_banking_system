@@ -1,1 +1,7 @@
 Flask
+flask-cors
+pymongo
+python-dotenv
+twilio
+dnspython
+werkzeug
