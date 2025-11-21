@@ -1,31 +1,31 @@
-# IMPORTED MODULES-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
+# IMPORTED MODULES------------------------------------------------------------
 import secrets
 import string
 import time
 import datetime
-import os  # Added for environment variables
-from flask import Flask , request , jsonify , session , send_from_directory
-from werkzeug.security import generate_password_hash , check_password_hash 
+import os
+from flask import Flask, request, jsonify, session
+from werkzeug.security import generate_password_hash, check_password_hash
 from flask_cors import CORS
-from dotenv import load_dotenv  # Added to load .env file
-from twilio.rest import Client  # Added for Twilio
-from twilio.base.exceptions import TwilioRestException  # Added for error handling
+from dotenv import load_dotenv
+from twilio.rest import Client
+from twilio.base.exceptions import TwilioRestException
 
-# Updated database imports
+# NEW DATABASE IMPORTS
 from database import (
-    read_data_file, write_data_file,
-    USERS_FILE, TRANSACTIONS_FILE, SAVINGS_FILE, PEOPLE_FILE
+    users_collection, 
+    transactions_collection, 
+    savings_collection, 
+    people_collection
 )
 
-# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 
-# Load environment variables from .env file
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app  , supports_credentials=True)
-app.secret_key = '77ea0f9b96f802c9863be1af22696cb3' #SESSION KEY
+CORS(app, supports_credentials=True)
+app.secret_key = '77ea0f9b96f802c9863be1af22696cb3'
 
 # --- Twilio Configuration ---
 TWILIO_ACCOUNT_SID = os.environ.get('TWILIO_ACCOUNT_SID')
@@ -35,51 +35,25 @@ TWILIO_PHONE_NUMBER = os.environ.get('TWILIO_PHONE_NUMBER')
 twilio_client = None
 if TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN:
     twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
-else:
-    print("WARNING: Twilio environment variables not set. SMS functionality will be disabled.")
-# --- End Twilio Configuration ---
-
 
 # --- HELPER FUNCTIONS ---
 
-def find_user_by_id(user_id):
-    """Finds a user in the users.json list by their ID (read-only)."""
-    users = read_data_file(USERS_FILE, default_value=[])
-    for user in users:
-        if user.get('user_id') == user_id:
-            return user
-    return None
-
-def find_user_and_index_by_id(users_list, user_id):
-    """
-    Finds a user and their index in a pre-loaded list.
-    Returns (user_dict, index) or (None, -1).
-    """
-    for i, user in enumerate(users_list):
-        if user.get('user_id') == user_id:
-            return user, i
-    return None, -1
-
-# --- MODIFIED HELPER FUNCTION ---
-def create_transaction_record(name, tx_type, amount, note="", status="Completed"):
-    """Helper to create a standardized transaction dictionary."""
+def create_transaction_record(user_id, name, tx_type, amount, note="", status="Completed"):
+    """Creates a transaction object compatible with MongoDB"""
     return {
+        "user_id": user_id,  # Link to the user
         "transaction_id": f"tid_{int(time.time() * 1000)}",
         "name": name,
         "type": tx_type,
-        "amount": amount, # This can be positive or negative
+        "amount": amount,
         "date": datetime.datetime.now().strftime('%Y-%m-%d'),
         "description": note,
-        "status": status  # <-- NEWLY ADDED FIELD
+        "status": status
     }
-# --- END MODIFIED HELPER FUNCTION ---
 
+# --- ROUTES ---
 
-# User login an sign up functionality----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
-
-
-@app.route('/api/signup' , methods=['POST'])
+@app.route('/api/signup', methods=['POST'])
 def signUp():
     data = request.get_json()
     fullName = data.get('username')
@@ -88,42 +62,30 @@ def signUp():
     gender = data.get('gender')
     phoneNumber = data.get('phoneNumber')
     
-    # check for if password entered or not 
-    
     if not fullName or not password or not age or not gender or not phoneNumber:
         return jsonify({'error': 'All fields are required'}), 400
     
     try:
         age_int = int(age)
         if age_int < 18 or age_int > 150:
-            return jsonify({'error': 'Age must be between 18 and 150',
-                            "signUp" :  False}), 400
+            return jsonify({'error': 'Age must be between 18 and 150', "signUp": False}), 400
     except (ValueError, TypeError):
-        return jsonify({'error': 'Invalid age format' , 
-                        "signUp" :  False}), 400
+        return jsonify({'error': 'Invalid age format', "signUp": False}), 400
 
     if len(str(phoneNumber)) != 10:
-        return jsonify({'error': 'Phone number must be exactly 10 digits' , 
-                        "signUp" :  False}), 400
+        return jsonify({'error': 'Phone number must be 10 digits', "signUp": False}), 400
     
-    # Use the new generic read function
-    users = read_data_file(USERS_FILE, default_value=[])
+    # Check if phone number exists in MongoDB
+    if users_collection.find_one({"phoneNumber": int(phoneNumber)}):
+        return jsonify({'error': 'Phone number already registered'}), 409
     
-    for user in users:
-        if user.get('phoneNumber') == int(phoneNumber):
-            return jsonify({'error': 'This phone number is already registered'}), 409
-    
-    if not users:
-        new_user_id = 1000
-    else:
-        max_id = max(user['user_id'] for user in users)
-        new_user_id = max_id + 1;
-        
-        
+    # Generate new User ID
+    last_user = users_collection.find_one(sort=[("user_id", -1)])
+    new_user_id = 1000 if not last_user else last_user['user_id'] + 1
         
     new_user = {
         "user_id": new_user_id,
-        "username": fullName,  # Storing fullName as username
+        "username": fullName,
         "password_hash": generate_password_hash(password),
         "balance": 0.0,
         "age": int(age),
@@ -131,203 +93,103 @@ def signUp():
         "phoneNumber": int(phoneNumber)
     }
     
-    users.append(new_user)
-    # Use the new generic write function
-    write_data_file(USERS_FILE, users)
+    # Insert into MongoDB
+    users_collection.insert_one(new_user)
     
-    
-    # --- NEW: INITIALIZE USER DATA IN OTHER FILES ---
-    
-    # Convert new_user_id to string for JSON keys
-    user_id_str = str(new_user_id)
-    
-    try:
-        # Initialize transactions (default is an object {})
-        transactions_data = read_data_file(TRANSACTIONS_FILE, default_value={})
-        transactions_data[user_id_str] = []
-        write_data_file(TRANSACTIONS_FILE, transactions_data)
-        
-        # Initialize savings (default is an object {})
-        savings_data = read_data_file(SAVINGS_FILE, default_value={})
-        savings_data[user_id_str] = []
-        write_data_file(SAVINGS_FILE, savings_data)
-        
-        # Initialize people (default is an object {})
-        people_data = read_data_file(PEOPLE_FILE, default_value={})
-        people_data[user_id_str] = []
-        write_data_file(PEOPLE_FILE, people_data)
-
-    except Exception as e:
-        # This is a server-side error, but we should log it
-        print(f"CRITICAL ERROR: Failed to initialize data files for user {user_id_str}: {e}")
-        # We can still return success, as the user *was* created.
-        pass
-    
-    # --- END OF NEW BLOCK ---
+    # Note: We don't need to initialize empty lists for transactions/savings in Mongo.
+    # They are created when data is inserted.
     
     session['user_id'] = new_user_id
     
     return jsonify({
-        "message" : f"User {fullName} created successfully",
-        "user_id" : new_user_id,
-        "signUp" : True
-    }),201
+        "message": f"User {fullName} created successfully",
+        "user_id": new_user_id,
+        "signUp": True
+    }), 201
 
 
-# login logic
-
-
-@app.route('/api/login' , methods = ['POST'])
+@app.route('/api/login', methods=['POST'])
 def login():
-    data = request.get_json();
+    data = request.get_json()
     username = data.get('username')
     password = data.get('password')
     
     try:
         user_id = int(data.get('user_id'))
-    except(ValueError , TypeError):
+    except (ValueError, TypeError):
         return jsonify({"error": "Valid User ID is required"}), 400
     
-    if not username or not password or not user_id:
-        return jsonify({'error' : 'Username, password and user_id are required'}) , 400
-    
-    # Use the new generic read function
-    users = read_data_file(USERS_FILE, default_value=[])
-    user_to_check = None
-    
-    for user in users:
-        if(user['user_id'] == user_id):
-            user_to_check = user
-            break
+    # Find user in MongoDB
+    user = users_collection.find_one({"user_id": user_id})
         
-    if(
-        user_to_check 
-       and user_to_check['username'] == username 
-       and check_password_hash(user_to_check['password_hash'] , password)
-       ):
-        session['user_id'] = user_to_check['user_id']
-        return jsonify({"message": f"Welcome back, {username}!",
-                        "loggedIn" : True}) , 200
+    if (user and user['username'] == username and 
+        check_password_hash(user['password_hash'], password)):
+        session['user_id'] = user['user_id']
+        return jsonify({"message": f"Welcome back, {username}!", "loggedIn": True}), 200
     else:
-        return jsonify({"error": "Invalid credentials provided",
-                        "loggedIn" : False}), 401
-    
-    
-    
-# forgot Password logic
+        return jsonify({"error": "Invalid credentials", "loggedIn": False}), 401
 
 
-@app.route('/api/forgotPass' , methods=['POST'])
+@app.route('/api/forgotPass', methods=['POST'])
 def forgotPass():
-    # pywhatkit and pyautogui imports are removed
-    
     data = request.get_json()
     phoneNumber = data.get('phoneNumber')
     
-    if not phoneNumber:
-        return jsonify({'error' : 'Phone Number is required'}),400
-    
     try:
-        # FIX: Convert the incoming phone number string to an integer immediately.
         phoneNumber = int(phoneNumber)
     except (ValueError, TypeError):
-        return jsonify({'error': 'Invalid phone number format'}), 400
+        return jsonify({'error': 'Invalid phone number'}), 400
     
-    # Use the new generic read function
-    users = read_data_file(USERS_FILE, default_value=[])
-    user_found = None
-    user_index = -1
+    # Find user
+    user = users_collection.find_one({"phoneNumber": phoneNumber})
     
-    for i, user in enumerate(users):
-        if user.get('phoneNumber') == phoneNumber:
-            user_found = user
-            user_index = i
-            break # Exit the loop once a user is found
-
-    
-    if not user_found:
+    if not user:
         return jsonify({'error': 'Phone number not registered'}), 404
     
     alphabet = string.ascii_letters + string.digits
-    temp_password = ''.join(secrets.choice(alphabet) for i in range(6)) # 8-character random password
-    temp_password = f'@0{temp_password}'
-    users[user_index]['password_hash'] = generate_password_hash(temp_password)
+    temp_password = ''.join(secrets.choice(alphabet) for i in range(6))
+    temp_password_fmt = f'@0{temp_password}'
     
-    # Use the new generic write function
-    write_data_file(USERS_FILE, users)
+    # Update password in MongoDB
+    users_collection.update_one(
+        {"user_id": user['user_id']},
+        {"$set": {"password_hash": generate_password_hash(temp_password_fmt)}}
+    )
     
-    # --- NEW: Twilio SMS Logic ---
+    # Twilio SMS Logic
     try:
-        if not twilio_client or not TWILIO_PHONE_NUMBER:
-            print("ERROR: Twilio client not configured.")
-            raise Exception("Twilio client is not configured on the server.")
-
-        # Format number for E.164 (assuming Indian numbers)
-        phone_with_country_code = f"+91{phoneNumber}"
-        message_body = f"Hello {user_found['username']},\n\nYour temporary password for Mini Bank is: {temp_password}\n\nPlease use this to log in and change your password immediately."
-
-        # Send the SMS
-        message = twilio_client.messages.create(
-            body=message_body,
-            from_=TWILIO_PHONE_NUMBER,
-            to=phone_with_country_code
-        )
-
-        print(f"Twilio message sent: {message.sid}")
-        
-        return jsonify({
-            "message": "A temporary password has been sent to your phone via SMS.",
-            "isSMSSent": True  # Changed from isWhatsapp
-        }), 200
-        
-    except TwilioRestException as e:
-        print(f"Twilio REST Error: {e}")
-        return jsonify({
-            "error": f"Could not send SMS. Provider error: {e.msg}",
-            "isSMSSent": False
-        }), 500
+        if twilio_client:
+            message_body = f"Hello {user['username']},\n\nYour temporary password is: {temp_password_fmt}"
+            twilio_client.messages.create(
+                body=message_body,
+                from_=TWILIO_PHONE_NUMBER,
+                to=f"+91{phoneNumber}"
+            )
+            return jsonify({"message": "Temporary password sent via SMS.", "isSMSSent": True}), 200
     except Exception as e:
-        print(f"General Error sending SMS: {e}")
-        return jsonify({
-            "error": "Server error: Could not send SMS. Check server configuration.",
-            "isSMSSent": False
-        }), 500
-    # --- END: Twilio SMS Logic ---
- 
-    
-# --------------------------------------------------------------------------------------------------------------------------------------------------------------------
+        print(f"SMS Error: {e}")
+        # Return success anyway so user knows password changed, but warn about SMS
+        return jsonify({"message": "Password changed, but SMS failed.", "isSMSSent": False, "temp_pass": temp_password_fmt}), 200
 
+    return jsonify({"error": "SMS service unavailable", "isSMSSent": False}), 500
 
 
 @app.route('/api/dashboard-data', methods=['GET'])
 def get_dashboard_data():
-    # 1. Check if user is logged in
     user_id = session.get('user_id')
     if not user_id:
         return jsonify({"error": "User not logged in"}), 401
     
-    user_id_str = str(user_id)
-    
-    # 2. Get User's Core Info (Balance, Name)
-    user = find_user_by_id(user_id)
+    user = users_collection.find_one({"user_id": user_id})
     if not user:
         return jsonify({"error": "User not found"}), 404
         
-    user_balance = user.get('balance', 0.0)
-    user_name = user.get('username', 'User')
+    # Fetch related data from MongoDB collections
+    # Exclude _id field from results using projection {'_id': 0}
+    user_transactions = list(transactions_collection.find({"user_id": user_id}, {'_id': 0}))
+    user_savings = list(savings_collection.find({"user_id": user_id}, {'_id': 0}))
+    user_people = list(people_collection.find({"user_id": user_id}, {'_id': 0}))
 
-    # 3. Read all data files
-    transactions_data = read_data_file(TRANSACTIONS_FILE, default_value={})
-    savings_data = read_data_file(SAVINGS_FILE, default_value={})
-    people_data = read_data_file(PEOPLE_FILE, default_value={})
-
-    # 4. Get this user's specific data
-    # Use .get() for safety, defaulting to an empty list
-    user_transactions = transactions_data.get(user_id_str, [])
-    user_savings = savings_data.get(user_id_str, [])
-    user_people = people_data.get(user_id_str, [])
-
-    # 5. Calculate Monthly Income and Outcome
     total_income = 0.0
     total_outcome = 0.0
     current_month = datetime.datetime.now().month
@@ -335,671 +197,290 @@ def get_dashboard_data():
 
     for tx in user_transactions:
         try:
-            # Parse the date string into a datetime object
             tx_date = datetime.datetime.strptime(tx['date'], '%Y-%m-%d')
-            
-            # Check if the transaction is from the current month and year
             if tx_date.month == current_month and tx_date.year == current_year:
                 if tx['amount'] > 0:
                     total_income += tx['amount']
                 else:
-                    total_outcome += tx['amount'] # This will be a negative sum
-        except (ValueError, KeyError):
-            # Skip transaction if date is missing or malformed
-            print(f"Skipping transaction with bad date: {tx.get('transaction_id')}")
+                    total_outcome += tx['amount']
+        except:
             pass
             
-    # 6. Prepare data for frontend
-    # Slicing with `[-4:]` gets the last 4 items (or fewer if the list is short)
     dashboard_payload = {
-        "username": user_name,
-        "total_balance": user_balance,
+        "username": user.get('username'),
+        "total_balance": user.get('balance', 0.0),
         "monthly_income": total_income,
         "monthly_outcome": total_outcome,
-        "all_transactions": user_transactions, # Send all, frontend can display them
+        "all_transactions": user_transactions,
         "last_4_savings": user_savings[-4:],
         "last_4_people": user_people[-4:],
-        "userAccountNumber" : user_id_str
+        "userAccountNumber": str(user_id)
     }
-
     return jsonify(dashboard_payload), 200
 
-# --------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-
-
-# --- SAVINGS ROUTES ---
-
-@app.route('/api/savings', methods=['GET'])
-def get_savings():
-    """Fetches all savings goals for the logged-in user."""
+@app.route('/api/savings', methods=['GET', 'POST'])
+def handle_savings():
     user_id = session.get('user_id')
     if not user_id:
         return jsonify({"error": "User not logged in"}), 401
-    
-    user_id_str = str(user_id)
-    savings_data = read_data_file(SAVINGS_FILE, default_value={})
-    user_savings = savings_data.get(user_id_str, [])
-    
-    # Return newest first
-    return jsonify(user_savings[::-1]), 200
 
-@app.route('/api/savings', methods=['POST'])
-def add_saving():
-    """Adds a new savings goal for the logged-in user."""
-    user_id = session.get('user_id')
-    if not user_id:
-        return jsonify({"error": "User not logged in"}), 401
-    
-    data = request.get_json()
-    user_id_str = str(user_id)
-    
-    item_name = data.get('itemName')
-    target_amount_str = data.get('targetAmount')
-    color_code = data.get('colorCode')
-    description = data.get('description')
-    
-    if not item_name or not target_amount_str:
-        return jsonify({"error": "Item name and target amount are required"}), 400
-    
-    try:
-        target_amount = float(target_amount_str)
-        if target_amount <= 0:
-            raise ValueError("Target amount must be positive")
-    except (ValueError, TypeError):
-        return jsonify({"error": "Target amount must be a positive number"}), 400
-    
-    # Generate unique saving ID (prefix 'sid_' + timestamp in milliseconds)
-    saving_id = f"sid_{int(time.time() * 1000)}"
-    
-    new_saving = {
-        "saving_id": saving_id,
-        "name": item_name,
-        "target_amount": target_amount,
-        "saved_amount": 0.0,  # New savings always start at 0
-        "color_code": color_code,
-        "description": description,
-        "created_at": datetime.datetime.now().strftime('%Y-%m-%d')
-    }
-    
-    # Read, update, and write
-    savings_data = read_data_file(SAVINGS_FILE, default_value={})
-    user_savings = savings_data.get(user_id_str, [])
-    user_savings.append(new_saving)
-    savings_data[user_id_str] = user_savings
-    write_data_file(SAVINGS_FILE, savings_data)
-    
-    # Return the newly created object
-    return jsonify(new_saving), 201
+    if request.method == 'GET':
+        savings = list(savings_collection.find({"user_id": user_id}, {'_id': 0}))
+        return jsonify(savings[::-1]), 200
+
+    if request.method == 'POST':
+        data = request.get_json()
+        try:
+            target_amount = float(data.get('targetAmount'))
+            if target_amount <= 0: raise ValueError()
+        except:
+            return jsonify({"error": "Invalid target amount"}), 400
+
+        new_saving = {
+            "user_id": user_id,
+            "saving_id": f"sid_{int(time.time() * 1000)}",
+            "name": data.get('itemName'),
+            "target_amount": target_amount,
+            "saved_amount": 0.0,
+            "color_code": data.get('colorCode'),
+            "description": data.get('description'),
+            "created_at": datetime.datetime.now().strftime('%Y-%m-%d')
+        }
+        
+        savings_collection.insert_one(new_saving)
+        
+        # Return object without _id for frontend
+        new_saving.pop('_id')
+        return jsonify(new_saving), 201
 
 
-@app.route('/api/savingsDelete' , methods = ['POST'])
+@app.route('/api/savingsDelete', methods=['POST'])
 def delete_savings():
-    "delete a savings for the logged in user"
     user_id = session.get('user_id')
-    if not user_id:
-        return jsonify({"error": "User not logged in"}), 401
+    if not user_id: return jsonify({"error": "User not logged in"}), 401
     
     data = request.get_json()
-    user_id_str = str(user_id)
+    saving_id = f"sid_{data.get('savingsId')}"
     
-    savingsId_short = data.get('savingsId')
+    # Find the saving
+    saving = savings_collection.find_one({"user_id": user_id, "saving_id": saving_id})
     
-    if not savingsId_short:
-        return jsonify({"error": "Saving ID is required"}), 400
-    
-    target_saving_id = f"sid_{savingsId_short}"
-    
-    # --- LOAD ALL REQUIRED FILES ---
-    savings_data = read_data_file(SAVINGS_FILE, default_value={})
-    users = read_data_file(USERS_FILE, default_value=[])
-    transactions_data = read_data_file(TRANSACTIONS_FILE, default_value={})
-
-    # --- Find the user ---
-    user, user_index = find_user_and_index_by_id(users, user_id)
-    if not user:
-        return jsonify({"error": "User account not found"}), 404
-
-    # --- Find the saving and get its data ---
-    user_savings = savings_data.get(user_id_str, [])
-    updated_user_savings = []
-    saving_to_delete = None
-    
-    for saving in user_savings:
-        if saving.get("saving_id") == target_saving_id:
-            saving_to_delete = saving
-        else:
-            updated_user_savings.append(saving)
-    
-    # --- Check if the saving was found ---
-    if saving_to_delete:
-        amount_to_refund = saving_to_delete.get("saved_amount", 0.0)
-        saving_name = saving_to_delete.get("name", "Deleted Saving")
-
-        # Only process refund if there was money in it
-        if amount_to_refund > 0:
-            # 1. Add the balance back to the user
-            user['balance'] += amount_to_refund
-            users[user_index] = user # Put the updated user back in the list
-            
-            # 2. Create a refund transaction
-            refund_tx = create_transaction_record(
-                name=f"Refund from '{saving_name}'",
-                tx_type="Refund",
-                amount=amount_to_refund, # This is a positive amount
-                note="Saving goal deleted."
+    if saving:
+        amount = saving.get('saved_amount', 0.0)
+        if amount > 0:
+            # Refund user
+            users_collection.update_one(
+                {"user_id": user_id}, 
+                {"$inc": {"balance": amount}}
             )
-            user_tx_list = transactions_data.get(user_id_str, [])
-            user_tx_list.append(refund_tx)
-            transactions_data[user_id_str] = user_tx_list
+            # Log Transaction
+            refund_tx = create_transaction_record(
+                user_id, 
+                f"Refund from '{saving.get('name')}'", 
+                "Refund", 
+                amount, 
+                "Saving goal deleted."
+            )
+            transactions_collection.insert_one(refund_tx)
         
-        # 3. Update the savings list
-        savings_data[user_id_str] = updated_user_savings
+        # Delete saving
+        savings_collection.delete_one({"_id": saving['_id']})
+        return jsonify({"message": f"Deleted. Refunded: {amount}"}), 200
         
-        # 4. Save all modified files
-        write_data_file(USERS_FILE, users)
-        write_data_file(TRANSACTIONS_FILE, transactions_data)
-        write_data_file(SAVINGS_FILE, savings_data)
-        
-        return jsonify({
-            "message": f"Saving '{saving_name}' deleted. ₹{amount_to_refund:,.2f} refunded to balance."
-        }), 200
-    
-    else:
-        # The loop finished, but no matching ID was found
-        return jsonify({"error": "Saving not found"}), 404
-
-# --------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    return jsonify({"error": "Saving not found"}), 404
 
 
-# --- NEW: PAYMENT PROCESSING ROUTE ---
 @app.route('/api/process-payment', methods=['POST'])
 def process_payment():
-    
-    # 1. --- AUTHENTICATION ---
     user_id = session.get('user_id')
-    if not user_id:
-        return jsonify({"error": "User not logged in"}), 401
+    if not user_id: return jsonify({"error": "User not logged in"}), 401
     
-    user_id_str = str(user_id)
     data = request.get_json()
-
-    # 2. --- GET COMMON DATA ---
     password = data.get('password')
-    amount_str = data.get('amount')
-    transaction_type = data.get('transaction_type')
-    note = data.get('note', "")
-
-    if not password or not amount_str or not transaction_type:
-        return jsonify({"error": "Password, amount, and transaction type are required"}), 400
-
     try:
-        amount = float(amount_str)
-        if amount <= 0:
-            return jsonify({"error": "Amount must be a positive number"}), 400
+        amount = float(data.get('amount'))
     except (ValueError, TypeError):
-        return jsonify({"error": "Invalid amount"}), 400
+         return jsonify({"error": "Invalid amount"}), 400
 
-    # 3. --- LOAD DATA & VALIDATE SENDER ---
-    users = read_data_file(USERS_FILE, default_value=[])
-    transactions_data = read_data_file(TRANSACTIONS_FILE, default_value={})
+    tx_type = data.get('transaction_type')
+    note = data.get('note', "")
     
-    sender, sender_index = find_user_and_index_by_id(users, user_id)
+    sender = users_collection.find_one({"user_id": user_id})
     
-    if not sender:
-        return jsonify({"error": "Sender account not found"}), 404 # Should not happen if logged in
-        
     if not check_password_hash(sender['password_hash'], password):
         return jsonify({"error": "Invalid password"}), 403
 
-    # 4. --- TRANSACTION-SPECIFIC LOGIC ---
-    
-    # --- DEPOSIT ---
-    if transaction_type == 'deposit':
-        sender['balance'] += amount
-        tx_name = "Deposit"
-        tx_type = "Deposit"
-        tx_amount = amount
-        
-        # Note: create_transaction_record now defaults to status="Completed"
-        new_tx = create_transaction_record(tx_name, tx_type, tx_amount, note)
-        user_tx = transactions_data.get(user_id_str, [])
-        user_tx.append(new_tx)
-        transactions_data[user_id_str] = user_tx
-        
-    # --- WITHDRAW ---
-    elif transaction_type == 'withdraw':
-        if sender['balance'] < amount:
-            return jsonify({"error": "Insufficient funds"}), 400
-            
-        sender['balance'] -= amount
-        tx_name = "Withdrawal"
-        tx_type = "Withdrawal"
-        tx_amount = -amount # Store as negative
-        
-        new_tx = create_transaction_record(tx_name, tx_type, tx_amount, note)
-        user_tx = transactions_data.get(user_id_str, [])
-        user_tx.append(new_tx)
-        transactions_data[user_id_str] = user_tx
+    # --- HANDLE TRANSACTIONS ---
+    if tx_type == 'deposit':
+        users_collection.update_one({"user_id": user_id}, {"$inc": {"balance": amount}})
+        tx = create_transaction_record(user_id, "Deposit", "Deposit", amount, note)
+        transactions_collection.insert_one(tx)
 
-    # --- BANK TRANSFER (PAY STRANGER / FRIEND) ---
-    elif transaction_type == 'bank_transfer':
-        recipient_account_str = data.get('recipient_account')
-        if not recipient_account_str:
-            return jsonify({"error": "Recipient account number is required"}), 400
-            
-        try:
-            recipient_id = int(recipient_account_str)
-        except (ValueError, TypeError):
-            return jsonify({"error": "Invalid recipient account number"}), 400
-            
-        if recipient_id == user_id:
-            return jsonify({"error": "You cannot send money to yourself"}), 400
-            
-        if sender['balance'] < amount:
-            return jsonify({"error": "Insufficient funds"}), 400
-            
-        recipient, recipient_index = find_user_and_index_by_id(users, recipient_id)
-        
-        if not recipient:
-            return jsonify({"error": "Recipient account not found"}), 404
-            
-        # Perform transfer
-        sender['balance'] -= amount
-        recipient['balance'] += amount
-        
-        # Update users list
-        users[sender_index] = sender
-        users[recipient_index] = recipient
-        
-        # Create transaction for SENDER
-        sender_tx = create_transaction_record(
-            name=f"Transfer to {recipient['username']}",
-            tx_type="Bank Transfer",
-            amount=-amount,
-            note=note
-        )
-        sender_tx_list = transactions_data.get(user_id_str, [])
-        sender_tx_list.append(sender_tx)
-        transactions_data[user_id_str] = sender_tx_list
-        
-        # Create transaction for RECIPIENT
-        recipient_tx = create_transaction_record(
-            name=f"Transfer from {sender['username']}",
-            tx_type="Bank Transfer",
-            amount=amount,
-            note=note
-        )
-        recipient_tx_list = transactions_data.get(str(recipient_id), [])
-        recipient_tx_list.append(recipient_tx)
-        transactions_data[str(recipient_id)] = recipient_tx_list
+    elif tx_type == 'withdraw':
+        if sender['balance'] < amount: return jsonify({"error": "Insufficient funds"}), 400
+        users_collection.update_one({"user_id": user_id}, {"$inc": {"balance": -amount}})
+        tx = create_transaction_record(user_id, "Withdrawal", "Withdrawal", -amount, note)
+        transactions_collection.insert_one(tx)
 
-    # --- SAVING DEPOSIT ---
-    elif transaction_type == 'saving_deposit':
+    elif tx_type == 'bank_transfer':
+        recipient_id = int(data.get('recipient_account'))
+        if recipient_id == user_id: return jsonify({"error": "Cannot self-transfer"}), 400
+        if sender['balance'] < amount: return jsonify({"error": "Insufficient funds"}), 400
+        
+        recipient = users_collection.find_one({"user_id": recipient_id})
+        if not recipient: return jsonify({"error": "Recipient not found"}), 404
+        
+        # Update Balances
+        users_collection.update_one({"user_id": user_id}, {"$inc": {"balance": -amount}})
+        users_collection.update_one({"user_id": recipient_id}, {"$inc": {"balance": amount}})
+        
+        # Log for Sender
+        tx_sender = create_transaction_record(user_id, f"Transfer to {recipient['username']}", "Bank Transfer", -amount, note)
+        transactions_collection.insert_one(tx_sender)
+        
+        # Log for Recipient
+        tx_recipient = create_transaction_record(recipient_id, f"Transfer from {sender['username']}", "Bank Transfer", amount, note)
+        transactions_collection.insert_one(tx_recipient)
+
+    elif tx_type == 'saving_deposit':
         saving_id = data.get('saving_id')
-        if not saving_id:
-            return jsonify({"error": "Saving Goal ID is required"}), 400
-            
-        if sender['balance'] < amount:
-            return jsonify({"error": "Insufficient funds"}), 400
-            
-        # Load, modify, and save savings data
-        savings_data = read_data_file(SAVINGS_FILE, default_value={})
-        user_savings = savings_data.get(user_id_str, [])
+        if sender['balance'] < amount: return jsonify({"error": "Insufficient funds"}), 400
         
-        saving_found = False
-        tx_name = "Saving Deposit" # Default name
-        for saving in user_savings:
-            if saving.get('saving_id') == saving_id:
-                saving['saved_amount'] += amount
-                tx_name = f"Deposit to {saving['name']}"
-                saving_found = True
-                break
-                
-        if not saving_found:
-            return jsonify({"error": "Saving goal not found"}), 404
-            
-        # Update sender's balance
-        sender['balance'] -= amount
+        saving = savings_collection.find_one({"user_id": user_id, "saving_id": saving_id})
+        if not saving: return jsonify({"error": "Saving goal not found"}), 404
         
-        # Create transaction record
-        new_tx = create_transaction_record(
-            name=tx_name,
-            tx_type="Saving Deposit",
-            amount=-amount,
-            note=note
-        )
-        user_tx = transactions_data.get(user_id_str, [])
-        user_tx.append(new_tx)
-        transactions_data[user_id_str] = user_tx
+        # Update Balances
+        users_collection.update_one({"user_id": user_id}, {"$inc": {"balance": -amount}})
+        savings_collection.update_one({"_id": saving['_id']}, {"$inc": {"saved_amount": amount}})
         
-        # Write updated savings data
-        savings_data[user_id_str] = user_savings
-        write_data_file(SAVINGS_FILE, savings_data)
+        tx = create_transaction_record(user_id, f"Deposit to {saving['name']}", "Saving Deposit", -amount, note)
+        transactions_collection.insert_one(tx)
     
     else:
         return jsonify({"error": "Invalid transaction type"}), 400
 
-    # 5. --- SAVE ALL CHANGES & RESPOND ---
-    users[sender_index] = sender # Ensure sender's updates are in the list
-    write_data_file(USERS_FILE, users)
-    write_data_file(TRANSACTIONS_FILE, transactions_data)
+    # --- CRITICAL FIX: Fetch the updated balance to return to frontend ---
+    updated_sender = users_collection.find_one({"user_id": user_id})
+    new_balance = updated_sender['balance']
 
     return jsonify({
         "message": "Transaction successful!",
-        "new_balance": sender['balance']
+        "new_balance": new_balance  # <-- This was missing!
     }), 200
-
-
-# --------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 @app.route('/api/profile-data', methods=['GET'])
 def get_profile_data():
-    """
-    Fetches basic profile information for the logged-in user.
-    """
-    # 1. Check if user is logged in
     user_id = session.get('user_id')
-    if not user_id:
-        return jsonify({"error": "User not logged in"}), 401
+    if not user_id: return jsonify({"error": "User not logged in"}), 401
     
-    # 2. Get User's Core Info
-    user = find_user_by_id(user_id)
-    if not user:
-        return jsonify({"error": "User not found"}), 404
-    
-    # 3. Prepare payload with all necessary details
-    profile_payload = {
-        "username": user.get('username', 'User'),
-        "user_id": user.get('user_id', 'N/A'),
-        "phoneNumber": user.get('phoneNumber', 'N/A'),
-        "age": user.get('age', 'N/A'),
-        "gender": user.get('gender', 'N/A')
-    }
-    
-    return jsonify(profile_payload), 200
+    user = users_collection.find_one({"user_id": user_id}, {'_id': 0, 'password_hash': 0})
+    return jsonify(user), 200
 
 
-# --------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
-
-# --- NEW: CHANGE PASSWORD ROUTE ---
 @app.route('/api/change-password', methods=['POST'])
 def change_password():
-    """
-    Allows a logged-in user to change their password.
-    """
-    # 1. Check if user is logged in
     user_id = session.get('user_id')
-    if not user_id:
-        return jsonify({"error": "User not logged in"}), 401
-
-    # 2. Get data from request
     data = request.get_json()
-    old_password = data.get('oldPassword')
-    new_password = data.get('newPassword')
-    confirm_new_password = data.get('confirmNewPassword')
-
-    # 3. Validate input
-    if not old_password or not new_password or not confirm_new_password:
-        return jsonify({"error": "All password fields are required"}), 400
-
-    if new_password != confirm_new_password:
-        return jsonify({"error": "New passwords do not match"}), 400
-
-    # 4. Find the user
-    users = read_data_file(USERS_FILE, default_value=[])
-    user, user_index = find_user_and_index_by_id(users, user_id)
-
-    if not user:
-        session.clear() # Clear bad session
-        return jsonify({"error": "User account not found"}), 404
-
-    # 5. Verify old password
-    if not check_password_hash(user['password_hash'], old_password):
-        return jsonify({"error": "Incorrect old password"}), 403
-
-    # 6. Hash and save new password
-    new_password_hash = generate_password_hash(new_password)
-    user['password_hash'] = new_password_hash
-    users[user_index] = user
     
-    write_data_file(USERS_FILE, users)
-
-    # 7. Return success
-    return jsonify({"message": "Password updated successfully"}), 200
-
-
-# --------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
-# --- NEW: ROUTE FOR TRANSACTIONS PAGE ---
-@app.route('/api/transactions-data', methods=['GET'])
-def get_transactions_data():
-    """
-    Fetches all data needed for the main transactions page.
-    """
-    # 1. Check if user is logged in
-    user_id = session.get('user_id')
-    if not user_id:
-        return jsonify({"error": "User not logged in"}), 401
-    
-    user_id_str = str(user_id)
-    
-    # 2. Get User's Core Info
-    user = find_user_by_id(user_id)
-    if not user:
-        return jsonify({"error": "User not found"}), 404
+    if data['newPassword'] != data['confirmNewPassword']:
+        return jsonify({"error": "Passwords do not match"}), 400
         
-    user_balance = user.get('balance', 0.0)
-    user_name = user.get('username', 'User')
+    user = users_collection.find_one({"user_id": user_id})
+    if not check_password_hash(user['password_hash'], data['oldPassword']):
+        return jsonify({"error": "Incorrect old password"}), 403
+        
+    users_collection.update_one(
+        {"user_id": user_id}, 
+        {"$set": {"password_hash": generate_password_hash(data['newPassword'])}}
+    )
+    return jsonify({"message": "Password updated"}), 200
 
-    # 3. Read data files
-    transactions_data = read_data_file(TRANSACTIONS_FILE, default_value={})
-    savings_data = read_data_file(SAVINGS_FILE, default_value={})
 
-    # 4. Get this user's specific data
-    user_transactions = transactions_data.get(user_id_str, [])
-    user_savings = savings_data.get(user_id_str, [])
-
-    # 5. Calculate all-time stats for the stat boxes
-    total_income = 0.0
-    total_outcome = 0.0
-    for tx in user_transactions:
-        if tx['amount'] > 0:
-            total_income += tx['amount']
-        else:
-            total_outcome += tx['amount'] # This will be a negative sum
-            
-    total_savings = sum(saving.get('saved_amount', 0.0) for saving in user_savings)
-            
-    # 6. Prepare data for frontend
-    payload = {
-        "username": user_name,
-        "total_balance": user_balance,
+@app.route('/api/transactions-data', methods=['GET'])
+def get_transactions_page():
+    user_id = session.get('user_id')
+    if not user_id: return jsonify({"error": "User not logged in"}), 401
+    
+    user = users_collection.find_one({"user_id": user_id})
+    txs = list(transactions_collection.find({"user_id": user_id}, {'_id': 0}))
+    savings = list(savings_collection.find({"user_id": user_id}))
+    
+    total_savings = sum(s.get('saved_amount', 0) for s in savings)
+    total_income = sum(t['amount'] for t in txs if t['amount'] > 0)
+    total_outcome = sum(t['amount'] for t in txs if t['amount'] < 0)
+    
+    return jsonify({
+        "username": user['username'],
+        "total_balance": user['balance'],
         "total_savings": total_savings,
         "total_income": total_income,
         "total_outcome": total_outcome,
-        "transactions": user_transactions # Send all transactions
-    }
+        "transactions": txs
+    }), 200
 
-    return jsonify(payload), 200
 
-# --------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
-# --------------------------------------------------------------------------------------------------------------------------------------------------------------------
-# --- PEOPLE (CONTACTS) ROUTES ---
-# --------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
-@app.route('/api/people', methods=['GET'])
-def get_people():
-    """
-    Fetches the list of saved people (contacts) for the logged-in user.
-    """
+@app.route('/api/people', methods=['GET', 'POST'])
+def handle_people():
     user_id = session.get('user_id')
-    if not user_id:
-        return jsonify({"error": "User not logged in"}), 401
-    
-    user_id_str = str(user_id)
-    people_data = read_data_file(PEOPLE_FILE, default_value={})
-    user_people = people_data.get(user_id_str, [])
-    
-    # Augment the data with the full account number for the frontend
-    augmented_people_list = []
-    for person in user_people:
-        person['full_account_number'] = f"3594 1899 3455 {person.get('account_id', '0000')}"
-        augmented_people_list.append(person)
-    
-    # Return newest first
-    return jsonify(augmented_people_list[::-1]), 200
+    if not user_id: return jsonify({"error": "User not logged in"}), 401
 
+    if request.method == 'GET':
+        people = list(people_collection.find({"user_id": user_id}, {'_id': 0}))
+        for p in people:
+            p['full_account_number'] = f"3594 1899 3455 {p['account_id']}"
+        return jsonify(people[::-1]), 200
 
-@app.route('/api/people', methods=['POST'])
-def add_person():
-    """
-    Adds a new person (contact) to the logged-in user's list.
-    Fetches the phone number from the central users database.
-    """
-    user_id = session.get('user_id')
-    if not user_id:
-        return jsonify({"error": "User not logged in"}), 401
-    
-    user_id_str = str(user_id)
-    data = request.get_json()
-    
-    contact_name = data.get('contactName')
-    contact_account_str = data.get('contactAccount') # This is the 4-digit ID
-    contact_relation = data.get('contactRelation')
-    # contact_phone is REMOVED from the request data
-
-    # 1. Validation
-    if not contact_name or not contact_account_str or not contact_relation:
-        return jsonify({"error": "Name, account, and relation are required"}), 400
-
-    try:
-        contact_account_id = int(contact_account_str)
-    except (ValueError, TypeError):
-        return jsonify({"error": "Invalid account number format"}), 400
-    
-    if contact_account_id == user_id:
-        return jsonify({"error": "You cannot add yourself as a contact"}), 400
+    if request.method == 'POST':
+        data = request.get_json()
+        contact_acc = int(data.get('contactAccount'))
         
-    # 2. Check if the target user exists in the bank
-    target_user = find_user_by_id(contact_account_id)
-    if not target_user:
-        return jsonify({"error": "No user found with this account number"}), 404
+        if contact_acc == user_id: return jsonify({"error": "Cannot add self"}), 400
         
-    # --- NEW LOGIC: Fetch phone number from the found user ---
-    contact_phone_from_db = target_user.get('phoneNumber', "")
-    # Convert to string if it's an integer
-    contact_phone_str = str(contact_phone_from_db)
-
-    # 3. Check if this user is already in the people list
-    people_data = read_data_file(PEOPLE_FILE, default_value={})
-    user_people = people_data.get(user_id_str, [])
-    
-    for person in user_people:
-        if person.get('account_id') == contact_account_id:
-            return jsonify({"error": "This person is already in your contacts"}), 409
-    
-    # 4. All checks passed, create new person
-    new_person = {
-        "people_id": f"pid_{int(time.time() * 1000)}",
-        "name": contact_name,
-        "phone": contact_phone_str,  # <-- Use the phone number from the database
-        "account_id": contact_account_id,
-        "relation": contact_relation
-    }
-    
-    user_people.append(new_person)
-    people_data[user_id_str] = user_people
-    write_data_file(PEOPLE_FILE, people_data)
-    
-    # 5. Return the new object (augmented for the frontend)
-    new_person['full_account_number'] = f"3594 1899 3455 {contact_account_id}"
-    
-    return jsonify(new_person), 201
-
-
-@app.route('/api/people/<string:people_id>', methods=['DELETE'])
-def delete_person(people_id):
-    """
-    Deletes a person from the user's contact list.
-    """
-    user_id = session.get('user_id')
-    if not user_id:
-        return jsonify({"error": "User not logged in"}), 401
-    
-    user_id_str = str(user_id)
-    
-    people_data = read_data_file(PEOPLE_FILE, default_value={})
-    user_people = people_data.get(user_id_str, [])
-    
-    # Create a new list excluding the person to delete
-    updated_user_people = [p for p in user_people if p.get('people_id') != people_id]
-    
-    if len(user_people) == len(updated_user_people):
-        # No one was removed, so the ID was not found
-        return jsonify({"error": "Contact not found"}), 404
+        # Verify contact exists in bank
+        contact_user = users_collection.find_one({"user_id": contact_acc})
+        if not contact_user: return jsonify({"error": "Account not found"}), 404
         
-    # Save the updated list
-    people_data[user_id_str] = updated_user_people
-    write_data_file(PEOPLE_FILE, people_data)
-    
-    return jsonify({"message": "Contact deleted successfully"}), 200
-
-
-@app.route('/api/people/<string:people_id>', methods=['PUT'])
-def update_person(people_id):
-    """
-    Updates an existing person's details (name, phone, relation).
-    Note: Account ID cannot be changed.
-    """
-    user_id = session.get('user_id')
-    if not user_id:
-        return jsonify({"error": "User not logged in"}), 401
-        
-    user_id_str = str(user_id)
-    data = request.get_json()
-    
-    # Get new data
-    contact_name = data.get('contactName')
-    contact_phone = data.get('contactPhone', "")
-    contact_relation = data.get('contactRelation')
-
-    if not contact_name or not contact_relation:
-         return jsonify({"error": "Name and relation are required"}), 400
-
-    people_data = read_data_file(PEOPLE_FILE, default_value={})
-    user_people = people_data.get(user_id_str, [])
-    
-    contact_found = False
-    updated_contact = None
-    
-    # Find and update the contact
-    for i, person in enumerate(user_people):
-        if person.get('people_id') == people_id:
-            user_people[i]['name'] = contact_name
-            user_people[i]['phone'] = contact_phone
-            user_people[i]['relation'] = contact_relation
+        # Check dupes
+        if people_collection.find_one({"user_id": user_id, "account_id": contact_acc}):
+            return jsonify({"error": "Contact already exists"}), 409
             
-            contact_found = True
-            updated_contact = user_people[i] # This is a reference to the item in the list
-            break
-    
-    if not contact_found:
-        return jsonify({"error": "Contact not found"}), 404
-        
-    # Write changes
-    people_data[user_id_str] = user_people
-    write_data_file(PEOPLE_FILE, people_data)
-    
-    # Augment for response
-    updated_contact['full_account_number'] = f"3594 1899 3455 {updated_contact.get('account_id')}"
+        new_person = {
+            "user_id": user_id,
+            "people_id": f"pid_{int(time.time() * 1000)}",
+            "name": data.get('contactName'),
+            "phone": str(contact_user.get('phoneNumber')),
+            "account_id": contact_acc,
+            "relation": data.get('contactRelation')
+        }
+        people_collection.insert_one(new_person)
+        new_person.pop('_id')
+        new_person['full_account_number'] = f"3594 1899 3455 {contact_acc}"
+        return jsonify(new_person), 201
 
-    return jsonify(updated_contact), 200
 
-# --------------------------------------------------------------------------------------------------------------------------------------------------------------------
+@app.route('/api/people/<string:people_id>', methods=['DELETE', 'PUT'])
+def manage_person(people_id):
+    user_id = session.get('user_id')
+    if request.method == 'DELETE':
+        res = people_collection.delete_one({"user_id": user_id, "people_id": people_id})
+        if res.deleted_count: return jsonify({"message": "Deleted"}), 200
+        return jsonify({"error": "Not found"}), 404
 
+    if request.method == 'PUT':
+        data = request.get_json()
+        res = people_collection.find_one_and_update(
+            {"user_id": user_id, "people_id": people_id},
+            {"$set": {
+                "name": data.get('contactName'),
+                "relation": data.get('contactRelation')
+            }},
+            return_document=True
+        )
+        if res:
+            res.pop('_id')
+            return jsonify(res), 200
+        return jsonify({"error": "Not found"}), 404
 
 if __name__ == '__main__':
     app.run(debug=True)
