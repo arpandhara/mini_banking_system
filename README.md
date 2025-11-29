@@ -34,8 +34,15 @@ This project serves as the core infrastructure for a personal banking applicatio
 ## 📂 Project Structure
 
     mini_banking_system/
-    ├── app.py               # Application entry point & API route definitions
+    ├── app.py               # Main entry point & Blueprint registration
     ├── database.py          # Database connection logic & schema handlers
+    ├── utils.py             # Shared helper functions & Twilio configuration
+    ├── routes/              # Modularized API route definitions
+    │   ├── __init__.py      # Package initialization
+    │   ├── auth.py          # Authentication & User Profile logic
+    │   ├── transactions.py  # Banking operations & Dashboard data
+    │   ├── savings.py       # Savings goals management
+    │   └── people.py        # Contacts (Payees) management
     ├── requirement.txt      # Python dependency manifest
     ├── .env                 # Environment variables (Excluded from version control)
     └── README.md            # Project documentation
