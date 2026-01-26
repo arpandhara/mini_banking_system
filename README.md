@@ -24,7 +24,7 @@ The Mini Banking System backend is a Flask-based REST API that enables secure fi
 
 ### Component Architecture
 
-![Architecture Diagram](https://raw.githubusercontent.com/yourusername/mini-banking-system/main/docs/architecture_diagram.png)
+![Architecture Diagram](./docs/architecture_diagram.png)
 
 The system follows a modular blueprint-based architecture with clearly separated concerns:
 
@@ -35,13 +35,13 @@ The system follows a modular blueprint-based architecture with clearly separated
 
 ### System Flow
 
-![System Flow Diagram](https://raw.githubusercontent.com/yourusername/mini-banking-system/main/docs/system_flow_diagram.png)
+![System Flow Diagram](./docs/system_flow_diagram.png)
 
 The application handles user requests through a well-defined flow including authentication, authorization, business logic processing, and data persistence.
 
 ### Sequence Diagram
 
-![Sequence Diagram](https://raw.githubusercontent.com/yourusername/mini-banking-system/main/docs/sequence_diagram.png)
+![Sequence Diagram](./docs/sequence_diagram.png)
 
 Detailed interaction flows between client, server, and database for various operations.
 
